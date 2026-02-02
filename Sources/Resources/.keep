@@ -1,0 +1,3 @@
+# Placeholder resource file so that SwiftPM's `.process("Resources")`
+# rule has a concrete directory to point at. The app currently has no
+# bundled resources; screenshots are saved to the Desktop at runtime.
