@@ -433,36 +433,30 @@ final class FloatingInputPanel: NSPanel {
     }
 }
 
-// MARK: - Note Panel
+// MARK: - Rename Panel
 
-enum NotePanelAction {
-    case save(text: String)
-    case copyAndSave(text: String)
-    case copyAndDelete(text: String)
+enum RenamePanelAction {
+    case save(newName: String)
+    case copyAndSave(newName: String)
+    case copyAndDelete(newName: String)
     case delete
-    case backToRename(text: String)
-    case goToEditor(text: String)
+    case goToNote(newName: String)
 }
 
-final class NotePanelController: NSWindowController {
-    var onAction: ((NotePanelAction) -> Void)?
+final class RenamePanelController: NSWindowController {
+    var onAction: ((RenamePanelAction) -> Void)?
 
-    private let textView = CommandAwareTextView()
-    private let shortcutLabel = NSTextField(labelWithString: "Enter: Save    ⌘↩: Copy+Save    ⌘⌫: Copy+Delete    Esc: Delete    Shift+Tab: Rename    Tab: Editor")
+    private let textField = CommandAwareTextField()
+    private let shortcutLabel = NSTextField(labelWithString: "Enter: Save    ⌘↩: Copy+Save    ⌘⌫: Copy+Delete    Esc: Delete    Tab: Note")
 
-    var text: String {
-        get { textView.string }
-        set { textView.string = newValue }
-    }
-
-    convenience init(initialText: String) {
-        let contentRect = NSRect(x: 0, y: 0, width: 410, height: 120)
+    convenience init(initialFilename: String) {
+        let contentRect = NSRect(x: 0, y: 0, width: 410, height: 215)
         let panel = FloatingInputPanel(contentRect: contentRect)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
 
         self.init(window: panel)
-        configureUI(initialText: initialText)
+        configureUI(initialFilename: initialFilename)
     }
 
     override init(window: NSWindow?) {
@@ -473,7 +467,7 @@ final class NotePanelController: NSWindowController {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private func configureUI(initialText: String) {
+    private func configureUI(initialFilename: String) {
         guard let contentView = window?.contentView else { return }
 
         let container = NSVisualEffectView(frame: contentView.bounds)
@@ -483,64 +477,57 @@ final class NotePanelController: NSWindowController {
         container.autoresizingMask = [.width, .height]
         contentView.addSubview(container)
 
-        let titleLabel = NSTextField(labelWithString: "Note")
+        let titleLabel = NSTextField(labelWithString: "Filename")
         titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
 
-        textView.font = NSFont.systemFont(ofSize: 13)
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isRichText = false
-        textView.textContainerInset = NSSize(width: 4, height: 4)
-        textView.string = initialText
+        textField.stringValue = initialFilename
+        textField.isBordered = true
+        textField.focusRingType = .default
+        textField.bezelStyle = .roundedBezel
+        textField.font = NSFont.systemFont(ofSize: 13)
 
-        textView.keyCommandHandler = { [weak self] command in
+        textField.keyCommandHandler = { [weak self] command in
             guard let self = self else { return }
-            let value = self.textView.string
+            let value = self.textField.stringValue
             switch command {
             case .enter:
-                self.onAction?(.save(text: value))
+                self.onAction?(.save(newName: value))
             case .commandEnter:
-                self.onAction?(.copyAndSave(text: value))
+                self.onAction?(.copyAndSave(newName: value))
             case .commandBackspace:
-                self.onAction?(.copyAndDelete(text: value))
+                self.onAction?(.copyAndDelete(newName: value))
             case .escape:
                 self.onAction?(.delete)
             case .tab:
-                self.onAction?(.goToEditor(text: value))
+                self.onAction?(.goToNote(newName: value))
             case .shiftTab:
-                self.onAction?(.backToRename(text: value))
+                NSSound.beep()
             }
-        }
-
-        let scrollView = NSScrollView()
-        scrollView.borderType = .bezelBorder
-        scrollView.hasVerticalScroller = true
-        scrollView.documentView = textView
-
-        [titleLabel, scrollView, shortcutLabel].forEach { view in
-            view.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(view)
         }
 
         shortcutLabel.font = NSFont.systemFont(ofSize: 11)
         shortcutLabel.textColor = NSColor.secondaryLabelColor
         shortcutLabel.lineBreakMode = .byWordWrapping
 
+        [titleLabel, textField, shortcutLabel].forEach { view in
+            view.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(view)
+        }
+
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 18),
             titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
 
-            scrollView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-            scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 60),
+            textField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
+            textField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            textField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
 
-            shortcutLabel.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 8),
+            shortcutLabel.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 12),
             shortcutLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            shortcutLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-            shortcutLabel.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -12)
+            shortcutLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20)
         ])
 
-        window?.initialFirstResponder = textView
+        window?.initialFirstResponder = textField
     }
 
     func show() {
@@ -548,6 +535,8 @@ final class NotePanelController: NSWindowController {
         window.makeKeyAndOrderFront(nil)
     }
 }
+
+
 
 // MARK: - Command-aware text input controls
 
