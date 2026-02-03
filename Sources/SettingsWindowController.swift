@@ -12,6 +12,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let maxSizePopUp: NSPopUpButton
     private let notePrefixCheckbox: NSButton
     private let notePrefixField: NSTextField
+    private let notePrefixCountLabel: NSTextField
     private let filenameTemplateEditor: FilenameTemplateEditorView
 
     private let areaShortcutRecorder: ShortcutRecorderView
@@ -20,7 +21,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let duplicateWarningLabel: NSTextField
 
     /// Fixed set of max-width options shown in the dropdown.
-    private let maxWidthOptions: [Int] = [0, 800, 1024, 1440, 1920]
+    private let maxWidthOptions: [Int] = [0, 800, 1200, 1600, 1920, 2400]
 
     init(settingsStore: SettingsStore, hotKeyService: HotKeyService) {
         self.settingsStore = settingsStore
@@ -29,8 +30,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         qualitySlider = NSSlider(value: 90, minValue: 10, maxValue: 100, target: nil, action: nil)
         qualityValueLabel = NSTextField(labelWithString: "")
         maxSizePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
-        notePrefixCheckbox = NSButton(checkboxWithTitle: "Prefix note with:", target: nil, action: nil)
+        notePrefixCheckbox = NSButton(checkboxWithTitle: "Enable Note Prefix", target: nil, action: nil)
         notePrefixField = NSTextField(string: "")
+        notePrefixCountLabel = NSTextField(labelWithString: "0/50")
         filenameTemplateEditor = FilenameTemplateEditorView(settingsStore: settingsStore)
 
         areaShortcutRecorder = ShortcutRecorderView(frame: .zero)
@@ -77,8 +79,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             rootStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -20)
         ])
 
+        // MARK: General section
+
+        let generalHeader = NSTextField(labelWithString: "General")
+        generalHeader.font = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
+
         // Quality row
-        let qualityLabel = NSTextField(labelWithString: "JPEG Quality:")
+        let qualityLabel = NSTextField(labelWithString: "JPEG Quality")
         qualityLabel.translatesAutoresizingMaskIntoConstraints = false
 
         qualitySlider.translatesAutoresizingMaskIntoConstraints = false
@@ -100,8 +107,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         qualityLabel.setContentHuggingPriority(.required, for: .horizontal)
         qualityValueLabel.setContentHuggingPriority(.required, for: .horizontal)
 
-        // Max size row
-        let maxSizeLabel = NSTextField(labelWithString: "Max width:")
+        // Max width row
+        let maxSizeLabel = NSTextField(labelWithString: "Max Width")
         maxSizeLabel.translatesAutoresizingMaskIntoConstraints = false
 
         maxSizePopUp.translatesAutoresizingMaskIntoConstraints = false
@@ -114,25 +121,56 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
         maxSizeLabel.setContentHuggingPriority(.required, for: .horizontal)
 
-        // Note prefix row
+        rootStack.addArrangedSubview(generalHeader)
+        rootStack.addArrangedSubview(qualityRow)
+        rootStack.addArrangedSubview(maxSizeRow)
+        rootStack.addArrangedSubview(NSBox.separator())
+
+        // MARK: Note Settings section
+
+        let noteHeader = NSTextField(labelWithString: "Note Settings")
+        noteHeader.font = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
+
         notePrefixCheckbox.translatesAutoresizingMaskIntoConstraints = false
         notePrefixCheckbox.target = self
         notePrefixCheckbox.action = #selector(notePrefixToggled(_:))
+
+        let notePrefixToggleRow = NSStackView(views: [notePrefixCheckbox])
+        notePrefixToggleRow.orientation = .horizontal
+        notePrefixToggleRow.alignment = .centerY
+        notePrefixToggleRow.spacing = 8
+
+        let prefixTextLabel = NSTextField(labelWithString: "Prefix Text")
+        prefixTextLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         notePrefixField.translatesAutoresizingMaskIntoConstraints = false
         notePrefixField.delegate = self
         notePrefixField.target = self
         notePrefixField.action = #selector(notePrefixFieldEdited(_:))
 
-        let notePrefixRow = NSStackView(views: [notePrefixCheckbox, notePrefixField])
+        notePrefixCountLabel.translatesAutoresizingMaskIntoConstraints = false
+        notePrefixCountLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+        notePrefixCountLabel.textColor = NSColor.secondaryLabelColor
+        notePrefixCountLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        let notePrefixRow = NSStackView(views: [prefixTextLabel, notePrefixField, notePrefixCountLabel])
         notePrefixRow.orientation = .horizontal
         notePrefixRow.alignment = .centerY
         notePrefixRow.spacing = 8
 
-        notePrefixCheckbox.setContentHuggingPriority(.required, for: .horizontal)
+        rootStack.addArrangedSubview(noteHeader)
+        rootStack.addArrangedSubview(notePrefixToggleRow)
+        rootStack.addArrangedSubview(notePrefixRow)
+        rootStack.addArrangedSubview(NSBox.separator())
 
-        // Shortcuts header
-        let shortcutsHeader = NSTextField(labelWithString: "Global Shortcuts")
+        // MARK: Filename Template section
+
+        rootStack.addArrangedSubview(filenameTemplateEditor)
+        rootStack.addArrangedSubview(NSBox.separator())
+
+        // MARK: Shortcuts section
+
+        let shortcutsHeader = NSTextField(labelWithString: "Shortcuts")
         shortcutsHeader.font = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
 
         // Shortcut rows
@@ -177,12 +215,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         duplicateWarningLabel.textColor = NSColor.systemRed
         duplicateWarningLabel.isHidden = true
 
-        // Assemble root stack
-        rootStack.addArrangedSubview(qualityRow)
-        rootStack.addArrangedSubview(maxSizeRow)
-        rootStack.addArrangedSubview(notePrefixRow)
-        rootStack.addArrangedSubview(filenameTemplateEditor)
-        rootStack.addArrangedSubview(NSBox.separator())
         rootStack.addArrangedSubview(shortcutsHeader)
         rootStack.addArrangedSubview(areaRow)
         rootStack.addArrangedSubview(fullRow)
@@ -196,9 +228,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         for width in maxWidthOptions {
             let title: String
             if width == 0 {
-                title = "Original size"
+                title = "Original (no resize)"
             } else {
-                title = "Max width: \(width) px"
+                title = "\(width) px"
             }
 
             maxSizePopUp.menu?.addItem(withTitle: title, action: nil, keyEquivalent: "")
@@ -233,6 +265,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         notePrefixCheckbox.state = settings.notePrefixEnabled ? .on : .off
         notePrefixField.stringValue = settings.notePrefix
         notePrefixField.isEnabled = settings.notePrefixEnabled
+        notePrefixCountLabel.isEnabled = settings.notePrefixEnabled
+        updateNotePrefixCountLabel(for: settings.notePrefix)
 
         // Filename template
         filenameTemplateEditor.reloadFromSettings()
@@ -271,6 +305,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     @objc private func notePrefixToggled(_ sender: NSButton) {
         let isOn = sender.state == .on
         notePrefixField.isEnabled = isOn
+        notePrefixCountLabel.isEnabled = isOn
         settingsStore.update { settings in
             settings.notePrefixEnabled = isOn
         }
@@ -282,6 +317,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             text = String(text.prefix(50))
             sender.stringValue = text
         }
+        updateNotePrefixCountLabel(for: text)
 
         settingsStore.update { settings in
             settings.notePrefix = text
@@ -342,6 +378,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     // MARK: - NSTextFieldDelegate
 
+    private func updateNotePrefixCountLabel(for text: String) {
+        let count = text.count
+        notePrefixCountLabel.stringValue = "\(count)/50"
+    }
+
     func controlTextDidChange(_ obj: Notification) {
         guard let field = obj.object as? NSTextField, field === notePrefixField else { return }
 
@@ -350,6 +391,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             text = String(text.prefix(50))
             field.stringValue = text
         }
+        updateNotePrefixCountLabel(for: text)
     }
 
     // MARK: - NSWindowDelegate
