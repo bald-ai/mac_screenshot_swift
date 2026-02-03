@@ -3,7 +3,7 @@ import Carbon
 
 /// Top-level settings model persisted to ~/.screenshot_app_settings.json
 struct Settings: Codable {
-    /// JPEG quality 10–100, step 5.
+    /// JPEG quality 10	100, step 5.
     var quality: Int
 
     /// Maximum width in pixels (0 = original size).
@@ -20,6 +20,9 @@ struct Settings: Codable {
 
     /// Global shortcut configuration.
     var shortcuts: Shortcuts
+
+    /// Global screenshot counter for filename generation.
+    var screenshotCounter: Int
 }
 
 extension Settings {
@@ -30,14 +33,15 @@ extension Settings {
         notePrefixEnabled: false,
         notePrefix: "",
         filenameTemplate: .defaultTemplate,
-        shortcuts: .default
+        shortcuts: .default,
+        screenshotCounter: 1
     )
 
     /// Returns a copy normalized to all invariants/constraints.
     func normalized() -> Settings {
         var copy = self
 
-        // Clamp and quantize quality to 10–100, step 5.
+        // Clamp and quantize quality to 10	100, step 5.
         let clampedQuality = min(100, max(10, quality))
         copy.quality = (clampedQuality / 5) * 5
 
@@ -48,6 +52,9 @@ extension Settings {
         if copy.notePrefix.count > 50 {
             copy.notePrefix = String(copy.notePrefix.prefix(50))
         }
+
+        // Ensure screenshot counter is always >= 1.
+        copy.screenshotCounter = max(1, screenshotCounter)
 
         // Enforce filename template invariants.
         copy.filenameTemplate.ensureTimeOrCounterEnabled()
@@ -216,10 +223,8 @@ extension FilenameTemplate {
                 dateFormatter.dateFormat = block.format?.isEmpty == false ? block.format! : "HH.mm.ss"
                 components.append(dateFormatter.string(from: date))
             case .counter:
-                // Only append counter when > 1 so first screenshot is cleaner.
-                if counter > 1 {
-                    components.append(String(counter))
-                }
+                // Always include counter when the block is enabled.
+                components.append(String(counter))
             }
         }
 

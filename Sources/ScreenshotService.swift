@@ -91,9 +91,18 @@ final class ScreenshotService: NSObject {
             throw NSError(domain: "ScreenshotService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode JPEG data."])
         }
 
+        let date = Date()
+        let currentCounter = settings.screenshotCounter
+        let baseName = settings.filenameTemplate.makeFilename(date: date, counter: currentCounter)
+
         try fileManager.createDirectory(at: desktopDirectory, withIntermediateDirectories: true)
-        let url = uniqueScreenshotURL(in: desktopDirectory, date: Date())
+        let url = uniqueScreenshotURL(in: desktopDirectory, baseName: baseName)
         try data.write(to: url, options: .atomic)
+
+        settingsStore.update { settings in
+            settings.screenshotCounter = currentCounter + 1
+        }
+
         return url
     }
 
@@ -228,18 +237,21 @@ final class ScreenshotService: NSObject {
         return bitmap.representation(using: .jpeg, properties: [.compressionFactor: compression])
     }
 
-    private func uniqueScreenshotURL(in directory: URL, date: Date) -> URL {
-        let template = settingsStore.settings.filenameTemplate
-        var counter = 1
+    private func uniqueScreenshotURL(in directory: URL, baseName: String) -> URL {
+        let name = baseName.isEmpty ? "Screenshot" : baseName
+        var url = directory.appendingPathComponent(name).appendingPathExtension("jpg")
+        if !fileManager.fileExists(atPath: url.path) {
+            return url
+        }
 
+        var suffix = 2
         while true {
-            let baseName = template.makeFilename(date: date, counter: counter)
-            let name = baseName.isEmpty ? "Screenshot" : baseName
-            let url = directory.appendingPathComponent(name).appendingPathExtension("jpg")
+            let suffixedName = "\(name)_\(suffix)"
+            url = directory.appendingPathComponent(suffixedName).appendingPathExtension("jpg")
             if !fileManager.fileExists(atPath: url.path) {
                 return url
             }
-            counter += 1
+            suffix += 1
         }
     }
 
