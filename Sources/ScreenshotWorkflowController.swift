@@ -21,6 +21,9 @@ final class ScreenshotWorkflowController {
 
     private var renameController: RenamePanelController?
     private var noteController: NotePanelController?
+    private var editorController: EditorWindowController?
+
+    private var hasCreatedBackup = false
 
     /// Optional callback invoked once the workflow has fully completed.
     var onFinish: (() -> Void)?
@@ -195,10 +198,77 @@ final class ScreenshotWorkflowController {
             presentRenamePanel()
 
         case .goToEditor(let text):
-            // Editor integration will be implemented in a later step. For now,
-            // treat Tab from the note panel as a regular save.
-            complete(action: .saveOnly, note: text)
+            openEditor(withNote: text)
         }
+    }
+
+    // MARK: - Editor
+
+    private func openEditor(withNote text: String) {
+        // Apply the note first so the editor sees the captioned image.
+        applyNoteIfNeeded(text)
+
+        // Close the note panel; the rename panel is already closed by this point.
+        noteController?.close()
+        noteController = nil
+
+        guard let editor = EditorWindowController(imageURL: fileURL) else {
+            // If the editor fails to load, fall back to a regular save.
+            complete(action: .saveOnly, note: nil)
+            return
+        }
+
+        editor.onComplete = { [weak self] image, action in
+            self?.handleEditorCompletion(editedImage: image, action: action)
+        }
+
+        editorController = editor
+        editor.show()
+    }
+
+    private func handleEditorCompletion(editedImage: NSImage?, action: FinalAction) {
+        editorController?.close()
+        editorController = nil
+
+        if let image = editedImage {
+            saveEditedImage(image)
+        }
+
+        switch action {
+        case .saveOnly:
+            break
+        case .copyAndSave:
+            clipboardService.copyFile(at: fileURL, useCache: false)
+        case .copyAndDelete:
+            clipboardService.copyFile(at: fileURL, useCache: true)
+            deleteFileAndBackup()
+        case .deleteOnly:
+            deleteFileAndBackup()
+        }
+
+        onFinish?()
+    }
+
+    private func saveEditedImage(_ image: NSImage) {
+        ensureBackupExists()
+
+        let quality = settingsStore.settings.quality
+        guard let data = jpegData(from: image, quality: quality) else {
+            presentError(title: "Failed to encode image", message: "Could not encode edited image as JPEG.")
+            return
+        }
+
+        do {
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            presentError(title: "Failed to write image", message: error.localizedDescription)
+        }
+    }
+
+    private func ensureBackupExists() {
+        guard !hasCreatedBackup else { return }
+        backupService.createBackup(forOriginalURL: fileURL)
+        hasCreatedBackup = true
     }
 
     // MARK: - Completion
@@ -241,6 +311,8 @@ final class ScreenshotWorkflowController {
     private func applyNoteIfNeeded(_ rawText: String) {
         var text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+
+        ensureBackupExists()
 
         text = String(text.prefix(1000))
 
