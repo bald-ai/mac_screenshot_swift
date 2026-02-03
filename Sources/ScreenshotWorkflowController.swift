@@ -559,7 +559,7 @@ final class NotePanelController: NSWindowController {
     }
 
     convenience init(initialText: String) {
-        let contentRect = NSRect(x: 0, y: 0, width: 410, height: 160)
+        let contentRect = NSRect(x: 0, y: 0, width: 410, height: 120)
         let panel = FloatingInputPanel(contentRect: contentRect)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
