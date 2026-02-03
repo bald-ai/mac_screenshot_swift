@@ -23,6 +23,7 @@ final class ScreenshotWorkflowController {
     private var noteController: NotePanelController?
     private var editorController: EditorWindowController?
 
+    private var pendingNoteText: String = ""
     private var hasCreatedBackup = false
 
     /// Optional callback invoked once the workflow has fully completed.
@@ -59,7 +60,8 @@ final class ScreenshotWorkflowController {
     }
 
     private func presentNotePanel(existingText: String = "") {
-        let controller = NotePanelController(initialText: existingText)
+        let initialText = existingText.isEmpty ? pendingNoteText : existingText
+        let controller = NotePanelController(initialText: initialText)
         controller.onAction = { [weak self] action in
             self?.handleNoteAction(action)
         }
@@ -103,7 +105,7 @@ final class ScreenshotWorkflowController {
 
         case .goToNote(let newName):
             guard applyRenameIfNeeded(newName: newName) else { return }
-            presentNotePanel()
+            presentNotePanel(existingText: pendingNoteText)
             renameController?.close()
             renameController = nil
         }
@@ -192,7 +194,8 @@ final class ScreenshotWorkflowController {
         case .delete:
             complete(action: .deleteOnly, note: nil)
 
-        case .backToRename:
+        case .backToRename(let text):
+            pendingNoteText = text
             noteController?.close()
             noteController = nil
             presentRenamePanel()
