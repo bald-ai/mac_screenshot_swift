@@ -210,10 +210,10 @@ extension FilenameTemplate {
                     components.append(text)
                 }
             case .date:
-                dateFormatter.dateFormat = block.format ?? "yyyy-MM-dd"
+                dateFormatter.dateFormat = block.format?.isEmpty == false ? block.format! : "yyyy-MM-dd"
                 components.append(dateFormatter.string(from: date))
             case .time:
-                dateFormatter.dateFormat = block.format ?? "HH.mm.ss"
+                dateFormatter.dateFormat = block.format?.isEmpty == false ? block.format! : "HH.mm.ss"
                 components.append(dateFormatter.string(from: date))
             case .counter:
                 // Only append counter when > 1 so first screenshot is cleaner.

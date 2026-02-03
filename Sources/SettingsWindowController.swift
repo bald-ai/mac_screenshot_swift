@@ -12,6 +12,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let maxSizePopUp: NSPopUpButton
     private let notePrefixCheckbox: NSButton
     private let notePrefixField: NSTextField
+    private let filenameTemplateEditor: FilenameTemplateEditorView
 
     private let areaShortcutRecorder: ShortcutRecorderView
     private let fullShortcutRecorder: ShortcutRecorderView
@@ -30,13 +31,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         maxSizePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
         notePrefixCheckbox = NSButton(checkboxWithTitle: "Prefix note with:", target: nil, action: nil)
         notePrefixField = NSTextField(string: "")
+        filenameTemplateEditor = FilenameTemplateEditorView(settingsStore: settingsStore)
 
         areaShortcutRecorder = ShortcutRecorderView(frame: .zero)
         fullShortcutRecorder = ShortcutRecorderView(frame: .zero)
         stitchShortcutRecorder = ShortcutRecorderView(frame: .zero)
         duplicateWarningLabel = NSTextField(labelWithString: "")
 
-        let contentRect = NSRect(x: 0, y: 0, width: 520, height: 420)
+        let contentRect = NSRect(x: 0, y: 0, width: 520, height: 460)
         let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
         let window = NSWindow(contentRect: contentRect, styleMask: style, backing: .buffered, defer: false)
         window.center()
@@ -179,6 +181,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         rootStack.addArrangedSubview(qualityRow)
         rootStack.addArrangedSubview(maxSizeRow)
         rootStack.addArrangedSubview(notePrefixRow)
+        rootStack.addArrangedSubview(filenameTemplateEditor)
         rootStack.addArrangedSubview(NSBox.separator())
         rootStack.addArrangedSubview(shortcutsHeader)
         rootStack.addArrangedSubview(areaRow)
@@ -230,6 +233,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         notePrefixCheckbox.state = settings.notePrefixEnabled ? .on : .off
         notePrefixField.stringValue = settings.notePrefix
         notePrefixField.isEnabled = settings.notePrefixEnabled
+
+        // Filename template
+        filenameTemplateEditor.reloadFromSettings()
 
         // Shortcuts
         applyShortcutsToRecorders(from: settings.shortcuts)
