@@ -3,6 +3,7 @@ import AppKit
 /// Manages the NSStatusItem (menubar icon and menu).
 final class TrayService {
     private let statusItem: NSStatusItem
+    private let menu: NSMenu
 
     private let onScreenshotArea: () -> Void
     private let onScreenshotFull: () -> Void
@@ -24,6 +25,7 @@ final class TrayService {
         self.onQuit = onQuit
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        menu = makeMenu()
         configureStatusItem()
     }
 
@@ -36,9 +38,8 @@ final class TrayService {
             }
             button.target = self
             button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
-
-        statusItem.menu = makeMenu()
     }
 
     private func makeMenu() -> NSMenu {
@@ -64,12 +65,25 @@ final class TrayService {
     // MARK: - Actions
 
     @objc private func statusItemClicked(_ sender: Any?) {
-        // For now, simply show the menu. In a later step we can refine this so
-        // that left-click focuses the settings window and right-click shows the menu.
-        if let button = statusItem.button, let menu = statusItem.menu {
+        guard let event = NSApp.currentEvent else {
+            onShowSettings()
+            return
+        }
+
+        switch event.type {
+        case .rightMouseUp:
             statusItem.popUpMenu(menu)
-            // Ensure the status item remains highlighted only while the menu is open.
-            button.performClick(nil)
+
+        case .leftMouseUp:
+            // Control-click should behave like right-click.
+            if event.modifierFlags.contains(.control) {
+                statusItem.popUpMenu(menu)
+            } else {
+                onShowSettings()
+            }
+
+        default:
+            break
         }
     }
 
