@@ -1,0 +1,23 @@
+.DS_Store
+
+# SwiftPM / Swift compiler build output (includes index store databases like data.mdb).
+.build/
+
+# Xcode / SourceKit / derived artifacts (optional, but usually safe to ignore).
+DerivedData/
+.swiftpm/
+*.xcodeproj/
+*.xcworkspace/
+
+# Xcode user-specific state.
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# IDEs / editors.
+.vscode/
+.idea/
+
+# Logs.
+*.log
