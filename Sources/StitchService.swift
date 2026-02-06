@@ -10,6 +10,8 @@ import Carbon
 final class StitchService {
     private let screenshotService: ScreenshotService
     private let fileManager: FileManager
+    private let stitchLock = NSLock()
+    private var stitchInProgress = false
 
     init(screenshotService: ScreenshotService, fileManager: FileManager = .default) {
         self.screenshotService = screenshotService
@@ -17,6 +19,18 @@ final class StitchService {
     }
 
     func stitchFromFinderSelection() {
+        // Do not allow stitch to interrupt an active capture/workflow.
+        guard !screenshotService.isBusyForUserCommands else {
+            Logger.shared.info("StitchService: stitch ignored (app busy)")
+            return
+        }
+
+        guard acquireStitchLock() else {
+            Logger.shared.info("StitchService: stitch ignored (lock already held)")
+            return
+        }
+        defer { releaseStitchLock() }
+
         let urls = finderSelectionURLs()
         let imageURLs = urls.filter { url in
             let ext = url.pathExtension.lowercased()
@@ -24,27 +38,27 @@ final class StitchService {
         }
 
         if imageURLs.count < 2 {
-            presentAlert(title: "Need at least 2 images",
-                         message: "Select 2–8 PNG/JPG/JPEG images in Finder before invoking Stitch.")
+            presentMessage(title: "Need at least 2 images",
+                           message: "Select 2–8 PNG/JPG/JPEG images in Finder before invoking Stitch.")
             return
         }
 
         if imageURLs.count > 8 {
-            presentAlert(title: "Too many images",
-                         message: "Stitch supports at most 8 images at once.")
+            presentMessage(title: "Too many images",
+                           message: "Stitch supports at most 8 images at once.")
             return
         }
 
         let images: [NSImage] = imageURLs.compactMap { NSImage(contentsOf: $0) }
         if images.count != imageURLs.count || images.isEmpty {
-            presentAlert(title: "Unable to read images",
-                         message: "One or more selected files could not be opened as images.")
+            presentMessage(title: "Unable to read images",
+                           message: "One or more selected files could not be opened as images.")
             return
         }
 
         guard let stitched = stitchImages(images) else {
-            presentAlert(title: "Stitch failed",
-                         message: "Failed to compose the stitched image.")
+            presentMessage(title: "Stitch failed",
+                           message: "Failed to compose the stitched image.")
             return
         }
 
@@ -52,8 +66,8 @@ final class StitchService {
             let url = try screenshotService.saveImageToDesktop(stitched)
             screenshotService.beginPostCaptureFlow(forExistingFileAt: url)
         } catch {
-            presentAlert(title: "Failed to save",
-                         message: error.localizedDescription)
+            presentMessage(title: "Failed to save",
+                           message: error.localizedDescription)
         }
     }
 
@@ -81,6 +95,11 @@ final class StitchService {
         let result = script.executeAndReturnError(&errorDict)
 
         if let errorDict = errorDict {
+            // Common failure: user denied Automation permission (Finder control).
+            if let code = errorDict[NSAppleScript.errorNumber] as? Int, code == -1743 {
+                presentAutomationPermissionMessage()
+                return []
+            }
             print("[StitchService] AppleScript error: \(errorDict)")
             return []
         }
@@ -153,12 +172,46 @@ final class StitchService {
 
     // MARK: - Alerts
 
-    private func presentAlert(title: String, message: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+    private func presentMessage(title: String, message: String) {
+        let panel = MessagePanelController(title: title, message: message)
+        panel.show()
+    }
+
+    private func presentAutomationPermissionMessage() {
+        let title = "Allow Finder Access"
+        let message = "To use Stitch, grant Finder access in System Settings -> Privacy & Security -> Automation (enable Finder for ScreenshotApp)."
+        let panel = MessagePanelController(
+            title: title,
+            message: message,
+            primaryTitle: "OK",
+            secondaryTitle: "Open Settings",
+            onSecondary: { [weak self] in
+                self?.openAutomationSettings()
+            }
+        )
+        panel.show()
+    }
+
+    private func openAutomationSettings() {
+        // Best-effort deep link; macOS may ignore/redirect depending on version.
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func acquireStitchLock() -> Bool {
+        stitchLock.lock()
+        defer { stitchLock.unlock() }
+        if stitchInProgress {
+            return false
+        }
+        stitchInProgress = true
+        return true
+    }
+
+    private func releaseStitchLock() {
+        stitchLock.lock()
+        stitchInProgress = false
+        stitchLock.unlock()
     }
 }

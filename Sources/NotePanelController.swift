@@ -113,6 +113,10 @@ final class NotePanelController: NSWindowController {
 
     func show() {
         guard let window = window else { return }
-        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+        window.makeKey()
+        window.makeFirstResponder(textView)
+        let end = textView.string.count
+        textView.setSelectedRange(NSRange(location: end, length: 0))
     }
 }

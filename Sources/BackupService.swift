@@ -22,6 +22,22 @@ final class BackupService {
 
         try? fileManager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true)
     }
+    
+    /// Removes all files under `~/Library/Caches/screenshotapp/backups`.
+    /// Mirrors the legacy app behavior to avoid orphaned backups across dev sessions.
+    func purgeAllBackups() {
+        do {
+            let urls = try fileManager.contentsOfDirectory(at: backupsDirectory,
+                                                          includingPropertiesForKeys: nil,
+                                                          options: [.skipsHiddenFiles])
+            for url in urls {
+                try? fileManager.removeItem(at: url)
+            }
+        } catch {
+            // Best-effort.
+            print("[BackupService] Failed to purge backups:", error)
+        }
+    }
 
     /// Returns the backup URL corresponding to a given original screenshot
     /// file URL.

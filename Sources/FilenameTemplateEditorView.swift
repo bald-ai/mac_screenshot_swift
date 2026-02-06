@@ -206,13 +206,13 @@ private final class BlockRowView: NSView, NSTextFieldDelegate {
     }
 
     private func configureUI(block: FilenameTemplate.Block, isFirst: Bool, isLast: Bool) {
-        let upButton = NSButton(title: "↑", target: self, action: #selector(moveUp))
-        upButton.setButtonType(.momentaryChange)
+        let upButton = NSButton(title: "↑", target: self, action: #selector(moveBlockUp))
+        upButton.setButtonType(.momentaryPushIn)
         upButton.isBordered = false
         upButton.isEnabled = !isFirst
 
-        let downButton = NSButton(title: "↓", target: self, action: #selector(moveDown))
-        downButton.setButtonType(.momentaryChange)
+        let downButton = NSButton(title: "↓", target: self, action: #selector(moveBlockDown))
+        downButton.setButtonType(.momentaryPushIn)
         downButton.isBordered = false
         downButton.isEnabled = !isLast
 
@@ -273,11 +273,11 @@ private final class BlockRowView: NSView, NSTextFieldDelegate {
 
     // MARK: - Actions
 
-    @objc private func moveUp() {
+    @objc private func moveBlockUp() {
         onMoveUp?()
     }
 
-    @objc private func moveDown() {
+    @objc private func moveBlockDown() {
         onMoveDown?()
     }
 

@@ -52,6 +52,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         configureContent()
         populateFromSettings()
     }
+    
+    /// Returns true while the user is actively recording a shortcut.
+    /// Used to ignore global hotkeys during recording (prevents accidental triggers).
+    var isRecordingAnyShortcut: Bool {
+        areaShortcutRecorder.isRecordingShortcut
+        || fullShortcutRecorder.isRecordingShortcut
+        || stitchShortcutRecorder.isRecordingShortcut
+    }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -124,7 +132,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         rootStack.addArrangedSubview(generalHeader)
         rootStack.addArrangedSubview(qualityRow)
         rootStack.addArrangedSubview(maxSizeRow)
-        rootStack.addArrangedSubview(NSBox.separator())
+        rootStack.addArrangedSubview(makeSeparator())
 
         // MARK: Note Settings section
 
@@ -161,12 +169,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         rootStack.addArrangedSubview(noteHeader)
         rootStack.addArrangedSubview(notePrefixToggleRow)
         rootStack.addArrangedSubview(notePrefixRow)
-        rootStack.addArrangedSubview(NSBox.separator())
+        rootStack.addArrangedSubview(makeSeparator())
 
         // MARK: Filename Template section
 
         rootStack.addArrangedSubview(filenameTemplateEditor)
-        rootStack.addArrangedSubview(NSBox.separator())
+        rootStack.addArrangedSubview(makeSeparator())
 
         // MARK: Shortcuts section
 
@@ -400,6 +408,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         // When the settings window is closed, return the app to accessory mode
         // so it behaves like a menubar app again.
         NSApp.setActivationPolicy(.accessory)
+    }
+
+    private func makeSeparator() -> NSBox {
+        let separator = NSBox()
+        separator.boxType = .separator
+        return separator
     }
 }
 

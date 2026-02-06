@@ -90,19 +90,19 @@ extension Shortcuts {
     /// Reasonable, non-conflicting defaults.
     /// These can later be changed via the shortcut recorder UI.
     static let `default` = Shortcuts(
-        // Cmd + Shift + 6
+        // Cmd + Shift + 4
         screenshotArea: Shortcut(
-            keyCode: UInt32(kVK_ANSI_6),
+            keyCode: UInt32(kVK_ANSI_4),
             modifierFlags: UInt32(cmdKey | shiftKey)
         ),
-        // Cmd + Shift + 7
+        // Cmd + Shift + 3
         screenshotFull: Shortcut(
-            keyCode: UInt32(kVK_ANSI_7),
+            keyCode: UInt32(kVK_ANSI_3),
             modifierFlags: UInt32(cmdKey | shiftKey)
         ),
-        // Cmd + Shift + 8
+        // Cmd + Shift + 2
         stitchImages: Shortcut(
-            keyCode: UInt32(kVK_ANSI_8),
+            keyCode: UInt32(kVK_ANSI_2),
             modifierFlags: UInt32(cmdKey | shiftKey)
         )
     )

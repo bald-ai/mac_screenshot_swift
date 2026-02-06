@@ -24,6 +24,7 @@ final class ScreenshotWorkflowController {
     private var editorController: EditorWindowController?
 
     private var pendingNoteText: String = ""
+    private var burnedNoteText: String = ""
     private var hasCreatedBackup = false
 
     /// Optional callback invoked once the workflow has fully completed.
@@ -34,29 +35,70 @@ final class ScreenshotWorkflowController {
          clipboardService: ClipboardService,
          backupService: BackupService,
          sourceScreen: NSScreen?) {
+        Logger.shared.info("ScreenshotWorkflowController: Initializing with file \(fileURL)")
         self.fileURL = fileURL
         self.settingsStore = settingsStore
         self.clipboardService = clipboardService
         self.backupService = backupService
         self.sourceScreen = sourceScreen
+        Logger.shared.info("ScreenshotWorkflowController: Initialization complete")
     }
 
     // MARK: - Public API
 
     func start() {
-        presentRenamePanel()
+        Logger.shared.info("ScreenshotWorkflowController: start() called")
+        // Ensure UI operations happen on main thread
+        if Thread.isMainThread {
+            presentRenamePanel()
+        } else {
+            Logger.shared.info("ScreenshotWorkflowController: Dispatching to main thread")
+            DispatchQueue.main.async { [weak self] in
+                self?.presentRenamePanel()
+            }
+        }
+        Logger.shared.info("ScreenshotWorkflowController: start() completed")
+    }
+
+    func cancel() {
+        Logger.shared.info("ScreenshotWorkflowController: cancel() called")
+        // Close any open panels
+        renameController?.close()
+        noteController?.close()
+        editorController?.close()
+        renameController = nil
+        noteController = nil
+        editorController = nil
+        Logger.shared.info("ScreenshotWorkflowController: All panels closed")
     }
 
     // MARK: - Panels
 
     private func presentRenamePanel() {
+        Logger.shared.info("ScreenshotWorkflowController: presentRenamePanel called on thread: \(Thread.current)")
+        guard Thread.isMainThread else {
+            Logger.shared.error("ScreenshotWorkflowController: presentRenamePanel called off main thread!")
+            DispatchQueue.main.async { [weak self] in
+                self?.presentRenamePanel()
+            }
+            return
+        }
+        Logger.shared.info("ScreenshotWorkflowController: Creating RenamePanelController with filename: \(fileURL.lastPathComponent)")
         let controller = RenamePanelController(initialFilename: fileURL.lastPathComponent)
+        Logger.shared.info("ScreenshotWorkflowController: RenamePanelController created")
         controller.onAction = { [weak self] action in
             self?.handleRenameAction(action)
         }
         renameController = controller
+        Logger.shared.info("ScreenshotWorkflowController: Centering window")
         center(controller.window, on: sourceScreen)
+        Logger.shared.info("ScreenshotWorkflowController: Showing rename controller without activating app")
+        // Do NOT activate or change activation policy here.
+        // Activating the app can yank the user out of their current Space/fullscreen app
+        // (it often looks like being “sent to Desktop”). We want a Spotlight-like panel.
         controller.show()
+        Logger.shared.info("ScreenshotWorkflowController: Window shown, isKey: \(controller.window?.isKeyWindow ?? false)")
+        Logger.shared.info("ScreenshotWorkflowController: presentRenamePanel completed")
     }
 
     private func presentNotePanel(existingText: String = "") {
@@ -67,6 +109,7 @@ final class ScreenshotWorkflowController {
         }
         noteController = controller
         center(controller.window, on: sourceScreen)
+        // Same rationale as rename: avoid activating the app (Space/Desktop jump).
         controller.show()
     }
 
@@ -87,27 +130,55 @@ final class ScreenshotWorkflowController {
     // MARK: - Rename handling
 
     private func handleRenameAction(_ action: RenamePanelAction) {
+        Logger.shared.info("ScreenshotWorkflowController: handleRenameAction called with action: \(action)")
         switch action {
         case .save(let newName):
-            guard applyRenameIfNeeded(newName: newName) else { return }
+            Logger.shared.info("ScreenshotWorkflowController: Processing .save with name: '\(newName)'")
+            guard applyRenameIfNeeded(newName: newName) else {
+                Logger.shared.warning("ScreenshotWorkflowController: applyRenameIfNeeded returned false, aborting")
+                return
+            }
+            Logger.shared.info("ScreenshotWorkflowController: Calling complete(.saveOnly)")
             complete(action: .saveOnly, note: nil)
+            Logger.shared.info("ScreenshotWorkflowController: .save flow completed")
 
         case .copyAndSave(let newName):
-            guard applyRenameIfNeeded(newName: newName) else { return }
+            Logger.shared.info("ScreenshotWorkflowController: Processing .copyAndSave with name: '\(newName)'")
+            guard applyRenameIfNeeded(newName: newName) else {
+                Logger.shared.warning("ScreenshotWorkflowController: applyRenameIfNeeded returned false, aborting")
+                return
+            }
+            Logger.shared.info("ScreenshotWorkflowController: Calling complete(.copyAndSave)")
             complete(action: .copyAndSave, note: nil)
+            Logger.shared.info("ScreenshotWorkflowController: .copyAndSave flow completed")
 
         case .copyAndDelete(let newName):
-            guard applyRenameIfNeeded(newName: newName) else { return }
+            Logger.shared.info("ScreenshotWorkflowController: Processing .copyAndDelete with name: '\(newName)'")
+            guard applyRenameIfNeeded(newName: newName) else {
+                Logger.shared.warning("ScreenshotWorkflowController: applyRenameIfNeeded returned false, aborting")
+                return
+            }
+            Logger.shared.info("ScreenshotWorkflowController: Calling complete(.copyAndDelete)")
             complete(action: .copyAndDelete, note: nil)
+            Logger.shared.info("ScreenshotWorkflowController: .copyAndDelete flow completed")
 
         case .delete:
+            Logger.shared.info("ScreenshotWorkflowController: Processing .delete")
             complete(action: .deleteOnly, note: nil)
+            Logger.shared.info("ScreenshotWorkflowController: .delete flow completed")
 
         case .goToNote(let newName):
-            guard applyRenameIfNeeded(newName: newName) else { return }
+            Logger.shared.info("ScreenshotWorkflowController: Processing .goToNote with name: '\(newName)'")
+            guard applyRenameIfNeeded(newName: newName) else {
+                Logger.shared.warning("ScreenshotWorkflowController: applyRenameIfNeeded returned false, aborting")
+                return
+            }
+            Logger.shared.info("ScreenshotWorkflowController: Presenting note panel")
             presentNotePanel(existingText: pendingNoteText)
+            Logger.shared.info("ScreenshotWorkflowController: Closing rename controller")
             renameController?.close()
             renameController = nil
+            Logger.shared.info("ScreenshotWorkflowController: .goToNote flow completed")
         }
     }
 
@@ -196,11 +267,14 @@ final class ScreenshotWorkflowController {
 
         case .backToRename(let text):
             pendingNoteText = text
+            // Open the destination panel first, then close the source panel.
+            // This avoids focus arbitration delays and "no key window" glitches.
+            presentRenamePanel()
             noteController?.close()
             noteController = nil
-            presentRenamePanel()
 
         case .goToEditor(let text):
+            pendingNoteText = text
             openEditor(withNote: text)
         }
     }
@@ -209,7 +283,7 @@ final class ScreenshotWorkflowController {
 
     private func openEditor(withNote text: String) {
         // Apply the note first so the editor sees the captioned image.
-        applyNoteIfNeeded(text)
+        guard applyNoteIfNeeded(text) else { return }
 
         // Close the note panel; the rename panel is already closed by this point.
         noteController?.close()
@@ -224,9 +298,19 @@ final class ScreenshotWorkflowController {
         editor.onComplete = { [weak self] image, action in
             self?.handleEditorCompletion(editedImage: image, action: action)
         }
+        editor.onBackToNote = { [weak self] image in
+            self?.returnToNoteFromEditor(editedImage: image)
+        }
 
         editorController = editor
         editor.show()
+    }
+
+    private func returnToNoteFromEditor(editedImage: NSImage) {
+        editorController?.close()
+        editorController = nil
+        saveEditedImage(editedImage)
+        presentNotePanel(existingText: pendingNoteText)
     }
 
     private func handleEditorCompletion(editedImage: NSImage?, action: FinalAction) {
@@ -234,19 +318,36 @@ final class ScreenshotWorkflowController {
         editorController = nil
 
         if let image = editedImage {
-            saveEditedImage(image)
-        }
+            switch action {
+            case .saveOnly, .copyAndSave:
+                saveEditedImage(image)
+            case .copyAndDelete, .deleteOnly:
+                break
+            }
 
-        switch action {
-        case .saveOnly:
-            break
-        case .copyAndSave:
-            clipboardService.copyFile(at: fileURL, useCache: false)
-        case .copyAndDelete:
-            clipboardService.copyFile(at: fileURL, useCache: true)
-            deleteFileAndBackup()
-        case .deleteOnly:
-            deleteFileAndBackup()
+            switch action {
+            case .saveOnly:
+                break
+            case .copyAndSave:
+                clipboardService.writeImage(image)
+            case .copyAndDelete:
+                clipboardService.writeImage(image)
+                deleteFileAndBackup()
+            case .deleteOnly:
+                deleteFileAndBackup()
+            }
+        } else {
+            switch action {
+            case .saveOnly:
+                break
+            case .copyAndSave:
+                clipboardService.copyFile(at: fileURL, useCache: false)
+            case .copyAndDelete:
+                clipboardService.copyFile(at: fileURL, useCache: true)
+                deleteFileAndBackup()
+            case .deleteOnly:
+                deleteFileAndBackup()
+            }
         }
 
         onFinish?()
@@ -277,14 +378,14 @@ final class ScreenshotWorkflowController {
     // MARK: - Completion
 
     private func complete(action: FinalAction, note: String?) {
+        if let note = note {
+            guard applyNoteIfNeeded(note) else { return }
+        }
+
         renameController?.close()
         noteController?.close()
         renameController = nil
         noteController = nil
-
-        if let note = note {
-            applyNoteIfNeeded(note)
-        }
 
         switch action {
         case .saveOnly:
@@ -298,6 +399,7 @@ final class ScreenshotWorkflowController {
             deleteFileAndBackup()
         }
 
+        burnedNoteText = ""
         onFinish?()
     }
 
@@ -311,13 +413,19 @@ final class ScreenshotWorkflowController {
 
     // MARK: - Note rendering
 
-    private func applyNoteIfNeeded(_ rawText: String) {
+    @discardableResult
+    private func applyNoteIfNeeded(_ rawText: String) -> Bool {
         var text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else { return true }
+
+        if text == burnedNoteText {
+            return true
+        }
 
         ensureBackupExists()
 
         text = String(text.prefix(1000))
+        let rawNote = text
 
         let settings = settingsStore.settings
         if settings.notePrefixEnabled {
@@ -327,71 +435,192 @@ final class ScreenshotWorkflowController {
             }
         }
 
-        guard let image = NSImage(contentsOf: fileURL) else { return }
-        guard let updated = burn(note: text, into: image) else { return }
+        guard let image = NSImage(contentsOf: fileURL) else {
+            presentError(title: "Failed to apply note", message: "Could not read the screenshot image.")
+            return false
+        }
+        guard let updated = burn(note: text, into: image) else {
+            presentError(title: "Failed to apply note", message: "Could not render the note text.")
+            return false
+        }
 
-        guard let data = jpegData(from: updated, quality: settings.quality) else { return }
+        guard let data = jpegData(from: updated, quality: settings.quality) else {
+            presentError(title: "Failed to apply note", message: "Could not encode the noted image.")
+            return false
+        }
 
         do {
             try data.write(to: fileURL, options: .atomic)
         } catch {
             presentError(title: "Failed to write note", message: error.localizedDescription)
+            return false
+        }
+        burnedNoteText = rawNote
+        return true
+    }
+
+    private func restoreOriginalFromBackupIfAvailable() -> Bool {
+        let backupURL = backupService.backupURL(forOriginalURL: fileURL)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: backupURL.path) else { return true }
+
+        do {
+            if fm.fileExists(atPath: fileURL.path) {
+                try fm.removeItem(at: fileURL)
+            }
+            try fm.copyItem(at: backupURL, to: fileURL)
+            return true
+        } catch {
+            presentError(title: "Failed to restore original", message: error.localizedDescription)
+            return false
         }
     }
 
     private func burn(note text: String, into image: NSImage) -> NSImage? {
-        let baseSize = image.size
-        let minWidth: CGFloat = 400
-        let outputWidth = max(baseSize.width, minWidth)
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            return nil
+        }
 
-        let font = NSFont.systemFont(ofSize: 14)
+        let baseWidth = CGFloat(cgImage.width)
+        let baseHeight = CGFloat(cgImage.height)
+        let minWidth: CGFloat = 400
+        let effectiveWidth = max(baseWidth, minWidth)
+
+        let scale = min(2.0, max(1.0, baseWidth / 1280.0))
+        let fontSizeBase = max(12, min(20, baseWidth * 0.02))
+        let paddingBase = max(8, min(16, baseWidth * 0.015))
+        let fontSize = fontSizeBase * scale
+        let padding = paddingBase * scale
+        let lineHeight = fontSize * 1.4
+
+        let font = NSFont.systemFont(ofSize: fontSize)
         let paragraph = NSMutableParagraphStyle()
         paragraph.lineBreakMode = .byWordWrapping
         paragraph.alignment = .left
 
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.white,
+            .foregroundColor: NSColor.black,
             .paragraphStyle: paragraph
         ]
 
-        let maxTextWidth = outputWidth - 40
-        let bounding = (text as NSString).boundingRect(
-            with: NSSize(width: maxTextWidth, height: .greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: attributes
-        )
+        let availableTextWidth = effectiveWidth - padding * 2
+        let lines = wrapText(text, maxWidth: availableTextWidth, attributes: attributes)
+        let noteHeight = ceil(CGFloat(lines.count) * lineHeight + padding * 2)
 
-        let textHeight = ceil(bounding.height)
-        let noteHeight: CGFloat = textHeight + 20
+        let outputSize = NSSize(width: effectiveWidth, height: baseHeight + noteHeight)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: Int(effectiveWidth),
+                                         pixelsHigh: Int(baseHeight + noteHeight),
+                                         bitsPerSample: 8,
+                                         samplesPerPixel: 4,
+                                         hasAlpha: true,
+                                         isPlanar: false,
+                                         colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0,
+                                         bitsPerPixel: 0) else {
+            return nil
+        }
+        rep.size = outputSize
 
-        let outputSize = NSSize(width: outputWidth, height: baseSize.height + noteHeight)
         let result = NSImage(size: outputSize)
+        result.addRepresentation(rep)
 
-        result.lockFocus()
+        NSGraphicsContext.saveGraphicsState()
+        if let context = NSGraphicsContext(bitmapImageRep: rep) {
+            NSGraphicsContext.current = context
+            context.imageInterpolation = .high
 
-        // Background
-        NSColor.white.setFill()
-        NSRect(origin: .zero, size: outputSize).fill()
+            if effectiveWidth > baseWidth {
+                NSColor(calibratedWhite: 0.95, alpha: 1.0).setFill()
+                NSRect(origin: .zero, size: outputSize).fill()
+            }
 
-        // Draw original image centered horizontally.
-        let imageX = (outputWidth - baseSize.width) / 2
-        image.draw(in: NSRect(x: imageX, y: noteHeight, width: baseSize.width, height: baseSize.height),
-                   from: .zero,
-                   operation: .sourceOver,
-                   fraction: 1.0)
+            let imageX = (effectiveWidth - baseWidth) / 2
+            let baseImage = NSImage(cgImage: cgImage, size: NSSize(width: baseWidth, height: baseHeight))
+            baseImage.draw(in: NSRect(x: imageX, y: noteHeight, width: baseWidth, height: baseHeight),
+                           from: .zero,
+                           operation: .sourceOver,
+                           fraction: 1.0)
 
-        // Draw note bar background.
-        let noteRect = NSRect(x: 0, y: 0, width: outputWidth, height: noteHeight)
-        NSColor(calibratedWhite: 0.1, alpha: 0.85).setFill()
-        noteRect.fill()
+            let noteRect = NSRect(x: 0, y: 0, width: effectiveWidth, height: noteHeight)
+            NSColor.white.setFill()
+            noteRect.fill()
 
-        // Draw text.
-        let textRect = NSRect(x: 20, y: 10, width: maxTextWidth, height: textHeight)
-        (text as NSString).draw(in: textRect, withAttributes: attributes)
+            for (index, line) in lines.enumerated() {
+                let topY = noteHeight - padding - CGFloat(index) * lineHeight
+                let lineRect = NSRect(x: padding,
+                                      y: topY - lineHeight,
+                                      width: availableTextWidth,
+                                      height: lineHeight)
+                (line as NSString).draw(with: lineRect,
+                                        options: [.usesLineFragmentOrigin, .usesFontLeading],
+                                        attributes: attributes)
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
 
-        result.unlockFocus()
         return result
+    }
+
+    private func wrapText(_ text: String,
+                          maxWidth: CGFloat,
+                          attributes: [NSAttributedString.Key: Any]) -> [String] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [""] }
+
+        let words = trimmed
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+        guard !words.isEmpty else { return [""] }
+
+        func measure(_ value: String) -> CGFloat {
+            (value as NSString).size(withAttributes: attributes).width
+        }
+
+        var lines: [String] = []
+        var currentLine = ""
+
+        func splitLongWord(_ word: String) -> String {
+            var segment = ""
+            for char in word {
+                let candidate = segment + String(char)
+                if measure(candidate) <= maxWidth {
+                    segment = candidate
+                } else {
+                    if !segment.isEmpty {
+                        lines.append(segment)
+                    }
+                    segment = String(char)
+                }
+            }
+            return segment
+        }
+
+        for word in words {
+            let nextLine = currentLine.isEmpty ? word : "\(currentLine) \(word)"
+            if measure(nextLine) <= maxWidth {
+                currentLine = nextLine
+                continue
+            }
+
+            if !currentLine.isEmpty {
+                lines.append(currentLine)
+                currentLine = ""
+            }
+
+            if measure(word) <= maxWidth {
+                currentLine = word
+            } else {
+                currentLine = splitLongWord(word)
+            }
+        }
+
+        if !currentLine.isEmpty {
+            lines.append(currentLine)
+        }
+
+        return lines.isEmpty ? [""] : lines
     }
 
     private func jpegData(from image: NSImage, quality: Int) -> Data? {
@@ -421,123 +650,51 @@ final class FloatingInputPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     init(contentRect: NSRect) {
+        Logger.shared.info("FloatingInputPanel: init starting")
+        // Ensure we're on main thread for window creation
+        if !Thread.isMainThread {
+            Logger.shared.error("FloatingInputPanel: Not on main thread! This will crash.")
+        }
+        
+        // Try creating the panel - if this crashes, it's likely a macOS window server issue
         super.init(contentRect: contentRect,
-                   styleMask: [.nonactivatingPanel],
+                   styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered,
-                   defer: false)
+                   defer: true)  // Changed to defer: true for safety
+        Logger.shared.info("FloatingInputPanel: super.init completed")
 
         isFloatingPanel = true
         level = .statusBar
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Show in the current Space and over fullscreen apps (Spotlight-like behavior).
+        collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .transient]
         hidesOnDeactivate = false
+        becomesKeyOnlyIfNeeded = true
         isOpaque = false
         backgroundColor = NSColor.clear
         hasShadow = true
-    }
-}
-
-// MARK: - Rename Panel
-
-enum RenamePanelAction {
-    case save(newName: String)
-    case copyAndSave(newName: String)
-    case copyAndDelete(newName: String)
-    case delete
-    case goToNote(newName: String)
-}
-
-final class RenamePanelController: NSWindowController {
-    var onAction: ((RenamePanelAction) -> Void)?
-
-    private let textField = CommandAwareTextField()
-    private let shortcutLabel = NSTextField(labelWithString: "Enter: Save    ⌘↩: Copy+Save    ⌘⌫: Copy+Delete    Esc: Delete    Tab: Note")
-
-    convenience init(initialFilename: String) {
-        let contentRect = NSRect(x: 0, y: 0, width: 410, height: 215)
-        let panel = FloatingInputPanel(contentRect: contentRect)
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-
-        self.init(window: panel)
-        configureUI(initialFilename: initialFilename)
+        
+        // Ensure window is properly initialized
+        self.isReleasedWhenClosed = false
+        
+        Logger.shared.info("FloatingInputPanel: init completed")
     }
 
-    override init(window: NSWindow?) {
-        super.init(window: window)
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    private func configureUI(initialFilename: String) {
-        guard let contentView = window?.contentView else { return }
-
-        let container = NSVisualEffectView(frame: contentView.bounds)
-        container.material = .hudWindow
-        container.blendingMode = .behindWindow
-        container.state = .active
-        container.autoresizingMask = [.width, .height]
-        contentView.addSubview(container)
-
-        let titleLabel = NSTextField(labelWithString: "Filename")
-        titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
-
-        textField.stringValue = initialFilename
-        textField.isBordered = true
-        textField.focusRingType = .default
-        textField.bezelStyle = .roundedBezel
-        textField.font = NSFont.systemFont(ofSize: 13)
-
-        textField.keyCommandHandler = { [weak self] command in
-            guard let self = self else { return }
-            let value = self.textField.stringValue
-            switch command {
-            case .enter:
-                self.onAction?(.save(newName: value))
-            case .commandEnter:
-                self.onAction?(.copyAndSave(newName: value))
-            case .commandBackspace:
-                self.onAction?(.copyAndDelete(newName: value))
-            case .escape:
-                self.onAction?(.delete)
-            case .tab:
-                self.onAction?(.goToNote(newName: value))
-            case .shiftTab:
-                NSSound.beep()
-            }
+    override func keyDown(with event: NSEvent) {
+        Logger.shared.info("FloatingInputPanel: keyDown called with keyCode: \(event.keyCode)")
+        // Check if any responder in the chain handles this
+        if let firstResponder = self.firstResponder {
+            Logger.shared.info("FloatingInputPanel: firstResponder is \(type(of: firstResponder))")
         }
-
-        shortcutLabel.font = NSFont.systemFont(ofSize: 11)
-        shortcutLabel.textColor = NSColor.secondaryLabelColor
-        shortcutLabel.lineBreakMode = .byWordWrapping
-
-        [titleLabel, textField, shortcutLabel].forEach { view in
-            view.translatesAutoresizingMaskIntoConstraints = false
-            container.addSubview(view)
-        }
-
-        NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 18),
-            titleLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-
-            textField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
-            textField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            textField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-
-            shortcutLabel.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 12),
-            shortcutLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            shortcutLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20)
-        ])
-
-        window?.initialFirstResponder = textField
+        super.keyDown(with: event)
     }
 
-    func show() {
-        guard let window = window else { return }
-        window.makeKeyAndOrderFront(nil)
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        Logger.shared.info("FloatingInputPanel: performKeyEquivalent called with keyCode: \(event.keyCode)")
+        return super.performKeyEquivalent(with: event)
     }
 }
+
+
 
 
 
@@ -552,14 +709,58 @@ enum KeyCommand {
     case shiftTab
 }
 
-final class CommandAwareTextField: NSTextField {
+final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
     var keyCommandHandler: ((KeyCommand) -> Void)?
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        delegate = self
+        isEditable = true
+        isSelectable = true
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        delegate = self
+        isEditable = true
+        isSelectable = true
+    }
+
     override func keyDown(with event: NSEvent) {
+        Logger.shared.info("CommandAwareTextField: keyDown called with keyCode: \(event.keyCode), modifiers: \(event.modifierFlags.intersection(.deviceIndependentFlagsMask))")
         if let command = interpret(event: event) {
+            Logger.shared.info("CommandAwareTextField: Interpreted command: \(command)")
             keyCommandHandler?(command)
+            Logger.shared.info("CommandAwareTextField: keyCommandHandler called")
         } else {
+            Logger.shared.info("CommandAwareTextField: No command interpreted, calling super.keyDown")
             super.keyDown(with: event)
+        }
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if let event = NSApp.currentEvent,
+           let command = interpret(event: event) {
+            Logger.shared.info("CommandAwareTextField: doCommandBy interpreted command: \(command)")
+            keyCommandHandler?(command)
+            return true
+        }
+
+        switch commandSelector {
+        case #selector(insertNewline(_:)):
+            keyCommandHandler?(.enter)
+            return true
+        case #selector(insertTab(_:)):
+            keyCommandHandler?(.tab)
+            return true
+        case #selector(insertBacktab(_:)):
+            keyCommandHandler?(.shiftTab)
+            return true
+        case #selector(cancelOperation(_:)):
+            keyCommandHandler?(.escape)
+            return true
+        default:
+            return false
         }
     }
 

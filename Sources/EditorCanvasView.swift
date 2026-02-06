@@ -3,7 +3,7 @@ import AppKit
 /// High-level tool selection for the editor canvas.
 /// Exposed separately so other parts of the app can talk to the canvas
 /// without depending on its internal implementation details.
-enum EditorTool {
+enum EditorTool: Hashable {
     case pen
     case arrow
     case rectangle
@@ -19,7 +19,7 @@ enum EditorTool {
 /// - Handle mouse/keyboard input for drawing and text editing
 /// - Provide an undo stack (up to 30 steps)
 /// - Communicate high-level key commands back to the window controller
-final class EditorCanvasView: NSView, NSTextFieldDelegate {
+final class EditorCanvasView: NSView, NSTextViewDelegate {
     // MARK: - Commands sent back to the controller
 
     enum FinalActionCommand {
@@ -37,6 +37,13 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
         case undo
         case clear
         case selectColor(index: Int)
+        case backToNote
+        case selectTool(EditorTool)
+        case toggleColorPicker
+        case colorPickerMove(direction: Int)
+        case colorPickerSelect
+        case colorPickerClose
+        case copyToClipboard
     }
 
     /// Type used by EditorWindowController when switching tools.
@@ -50,6 +57,7 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
     let baseImage: NSImage
     var currentTool: Tool = .pen
     var currentColor: NSColor = .systemRed
+    var isColorPickerOpen: Bool = false
 
     // MARK: - Internal model
 
@@ -79,10 +87,16 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
 
     // Text editing/dragging
     private var editingTextIndex: Int?
-    private var textEditor: NSTextField?
+    private var textEditor: EditorInlineTextView?
     private var draggingTextIndex: Int?
     private var textDragOffset: NSPoint = .zero
     private var shouldPushUndoOnTextEnd = false
+    private var selectedTextIndex: Int?
+    private var editingOriginalText: String?
+    private var editingWasNewItem = false
+    private var isCommittingText = false
+    private var isCancellingText = false
+    private let textPadding = NSSize(width: 6, height: 4)
 
     // MARK: - Init
 
@@ -103,6 +117,11 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
 
     func setTool(_ tool: EditorTool) {
         currentTool = tool
+        if tool != .text {
+            selectedTextIndex = nil
+            endTextEditingIfNeeded()
+        }
+        needsDisplay = true
     }
 
     func setColor(_ color: NSColor) {
@@ -113,6 +132,7 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
         guard let previous = undoStack.popLast() else { return }
         items = previous
         updateCanvasSizeIfNeeded()
+        selectedTextIndex = nil
         needsDisplay = true
     }
 
@@ -126,6 +146,8 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
         guard !items.isEmpty else { return }
         pushUndoSnapshot()
         items.removeAll()
+        selectedTextIndex = nil
+        endTextEditingIfNeeded()
         setFrameSize(baseImage.size)
         needsDisplay = true
     }
@@ -152,12 +174,12 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
         let size = baseImage.size
         let result = NSImage(size: size)
 
-        result.lockFocus()
+        result.lockFocusFlipped(true)
         NSColor.clear.setFill()
         NSRect(origin: .zero, size: size).fill()
 
         let imageRect = NSRect(origin: .zero, size: size)
-        baseImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+        baseImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
 
         for item in items {
             draw(item: item)
@@ -176,10 +198,22 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
         bounds.fill()
 
         let imageRect = NSRect(origin: .zero, size: baseImage.size)
-        baseImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0)
+        baseImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
 
         for item in items {
             draw(item: item)
+        }
+
+        if let index = selectedTextIndex, textEditor == nil {
+            if case let .text(textItem) = items[index] {
+                let rect = textBounds(for: textItem).insetBy(dx: -2, dy: -2)
+                let path = NSBezierPath(rect: rect)
+                let dash: [CGFloat] = [4, 3]
+                path.setLineDash(dash, count: dash.count, phase: 0)
+                NSColor.white.withAlphaComponent(0.8).setStroke()
+                path.lineWidth = 1
+                path.stroke()
+            }
         }
 
         // In-progress shapes
@@ -292,23 +326,35 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
 
     private func drawText(_ item: TextItem) {
         let attributes = textAttributes(for: item)
-        let rect = textBounds(for: item)
-        (item.text as NSString).draw(in: rect, withAttributes: attributes)
+        let rect = textBounds(for: item).insetBy(dx: textPadding.width, dy: textPadding.height)
+        (item.text as NSString).draw(with: rect, options: [.usesLineFragmentOrigin, .usesFontLeading], attributes: attributes, context: nil)
     }
 
     private func textAttributes(for item: TextItem) -> [NSAttributedString.Key: Any] {
         [
-            .font: NSFont.systemFont(ofSize: item.fontSize, weight: .semibold),
+            .font: NSFont.systemFont(ofSize: item.fontSize, weight: .regular),
             .foregroundColor: item.color
         ]
     }
 
     private func textBounds(for item: TextItem) -> NSRect {
-        let attributes = textAttributes(for: item)
-        let size = (item.text as NSString).size(withAttributes: attributes)
-        let width = max(size.width, 40)
-        let height = max(size.height, 18)
+        let font = NSFont.systemFont(ofSize: item.fontSize, weight: .regular)
+        let size = textContentSize(for: item.text, font: font)
+        let width = max(size.width + textPadding.width * 2, 60)
+        let height = max(size.height + textPadding.height * 2, 28)
         return NSRect(x: item.origin.x, y: item.origin.y, width: width, height: height)
+    }
+
+    private func textContentSize(for text: String, font: NSFont) -> NSSize {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        var maxWidth: CGFloat = 0
+        for line in lines {
+            let lineSize = (String(line) as NSString).size(withAttributes: [.font: font])
+            maxWidth = max(maxWidth, lineSize.width)
+        }
+        let lineHeight = font.boundingRectForFont.size.height
+        let height = max(1, lines.count)
+        return NSSize(width: maxWidth, height: lineHeight * CGFloat(height))
     }
 
     // MARK: - Geometry helpers
@@ -389,33 +435,35 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
             let clickCount = event.clickCount
 
             if let (index, rect) = hitTestText(at: point) {
+                selectedTextIndex = index
                 if clickCount >= 2 {
-                    // Double-click: edit existing text
                     endTextEditingIfNeeded()
-                    beginEditingText(at: index, pushUndoOnEnd: true)
+                    beginEditingText(at: index, pushUndoOnEnd: true, isNewItem: false)
                 } else {
-                    // Single click on text: begin dragging
                     endTextEditingIfNeeded()
                     pushUndoSnapshot()
                     draggingTextIndex = index
                     textDragOffset = NSPoint(x: point.x - rect.origin.x, y: point.y - rect.origin.y)
                 }
+                needsDisplay = true
                 return
             } else {
-                // Click on empty area: create a new text item and start editing
+                selectedTextIndex = nil
                 endTextEditingIfNeeded()
 
-                let item = TextItem(text: "", origin: point, color: currentColor, fontSize: 16)
+                let item = TextItem(text: "", origin: point, color: currentColor, fontSize: 24)
                 pushUndoSnapshot()
                 items.append(.text(item))
                 let index = items.count - 1
-                beginEditingText(at: index, pushUndoOnEnd: false)
+                selectedTextIndex = index
+                beginEditingText(at: index, pushUndoOnEnd: false, isNewItem: true)
                 updateCanvasSizeIfNeeded()
                 needsDisplay = true
                 return
             }
         }
 
+        selectedTextIndex = nil
         endTextEditingIfNeeded()
 
         dragStartPoint = point
@@ -459,6 +507,7 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
         if draggingTextIndex != nil {
             draggingTextIndex = nil
             updateCanvasSizeIfNeeded()
+            needsDisplay = true
             return
         }
 
@@ -515,92 +564,265 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
         return nil
     }
 
-    private func beginEditingText(at index: Int, pushUndoOnEnd: Bool) {
+    private func beginEditingText(at index: Int, pushUndoOnEnd: Bool, isNewItem: Bool) {
         guard case let .text(item) = items[index] else { return }
 
         endTextEditingIfNeeded()
 
         let rect = textBounds(for: item)
-        let field = NSTextField(frame: rect)
-        field.stringValue = item.text
-        field.isBordered = false
-        field.drawsBackground = false
-        field.textColor = item.color
-        field.font = NSFont.systemFont(ofSize: item.fontSize, weight: .semibold)
-        field.focusRingType = .none
-        field.delegate = self
+        let editor = EditorInlineTextView(frame: rect)
+        editor.string = item.text
+        editor.isRichText = false
+        editor.isAutomaticQuoteSubstitutionEnabled = false
+        editor.isAutomaticSpellingCorrectionEnabled = false
+        editor.isAutomaticTextReplacementEnabled = false
+        editor.isAutomaticDataDetectionEnabled = false
+        editor.isHorizontallyResizable = true
+        editor.isVerticallyResizable = true
+        editor.drawsBackground = false
+        editor.textColor = item.color
+        editor.font = NSFont.systemFont(ofSize: item.fontSize, weight: .regular)
+        editor.textContainerInset = textPadding
+        editor.textContainer?.lineFragmentPadding = 0
+        editor.textContainer?.lineBreakMode = .byClipping
+        editor.textContainer?.widthTracksTextView = false
+        editor.textContainer?.heightTracksTextView = false
+        editor.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                                     height: CGFloat.greatestFiniteMagnitude)
+        editor.focusRingType = .none
+        editor.delegate = self
+        editor.onCommit = { [weak self] in
+            self?.commitTextEditing()
+        }
+        editor.onCancel = { [weak self] in
+            self?.cancelTextEditing()
+        }
+        editor.onDidChange = { [weak self] in
+            self?.resizeTextEditorToFit()
+        }
+        editor.wantsLayer = true
+        editor.layer?.borderWidth = 1
+        editor.layer?.borderColor = NSColor.systemBlue.withAlphaComponent(0.9).cgColor
+        editor.layer?.cornerRadius = 4
 
-        addSubview(field)
-        window?.makeFirstResponder(field)
+        addSubview(editor)
+        window?.makeFirstResponder(editor)
 
         editingTextIndex = index
-        textEditor = field
+        editingOriginalText = item.text
+        editingWasNewItem = isNewItem
         shouldPushUndoOnTextEnd = pushUndoOnEnd
+        textEditor = editor
+        resizeTextEditorToFit()
     }
 
-    private func endTextEditingIfNeeded() {
-        guard let index = editingTextIndex, let editor = textEditor else { return }
-        let newText = editor.stringValue
+    private func resizeTextEditorToFit() {
+        guard let editor = textEditor else { return }
+        let font = editor.font ?? NSFont.systemFont(ofSize: 24, weight: .regular)
+        let text = editor.string
+        let contentSize = textContentSize(for: text, font: font)
+        let width = max(contentSize.width + textPadding.width * 2, 60)
+        let height = max(contentSize.height + textPadding.height * 2, 28)
+        editor.frame.size = NSSize(width: width, height: height)
+    }
 
-        if case var .text(item) = items[index] {
-            if item.text != newText {
-                if shouldPushUndoOnTextEnd {
-                    pushUndoSnapshot()
-                }
-                item.text = newText
+    private func commitTextEditing() {
+        guard !isCommittingText else { return }
+        guard let index = editingTextIndex, let editor = textEditor else { return }
+        isCommittingText = true
+        defer { isCommittingText = false }
+
+        let updatedText = trimTrailingWhitespace(editor.string.replacingOccurrences(of: "\r", with: ""))
+        let isEmpty = updatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+
+        if isEmpty {
+            if editingWasNewItem {
+                items.remove(at: index)
+                selectedTextIndex = nil
+            } else if let original = editingOriginalText, case var .text(item) = items[index] {
+                item.text = original
                 items[index] = .text(item)
             }
+        } else if case var .text(item) = items[index] {
+            let colorChanged = item.color != currentColor
+            let textChanged = item.text != updatedText
+            if shouldPushUndoOnTextEnd && (textChanged || colorChanged) {
+                pushUndoSnapshot()
+            }
+            item.text = updatedText
+            item.color = currentColor
+            items[index] = .text(item)
+            selectedTextIndex = index
         }
 
-        editor.removeFromSuperview()
-        editingTextIndex = nil
-        textEditor = nil
-        shouldPushUndoOnTextEnd = false
+        removeTextEditor()
         updateCanvasSizeIfNeeded()
         needsDisplay = true
     }
 
-    func controlTextDidEndEditing(_ obj: Notification) {
-        endTextEditingIfNeeded()
+    private func cancelTextEditing() {
+        guard let index = editingTextIndex else { return }
+        isCancellingText = true
+        if editingWasNewItem {
+            items.remove(at: index)
+            selectedTextIndex = nil
+        } else if let original = editingOriginalText, case var .text(item) = items[index] {
+            item.text = original
+            items[index] = .text(item)
+            selectedTextIndex = index
+        }
+        removeTextEditor()
+        updateCanvasSizeIfNeeded()
+        needsDisplay = true
+        isCancellingText = false
+    }
+
+    private func removeTextEditor() {
+        textEditor?.removeFromSuperview()
+        editingTextIndex = nil
+        textEditor = nil
+        editingOriginalText = nil
+        editingWasNewItem = false
+        shouldPushUndoOnTextEnd = false
+        window?.makeFirstResponder(self)
+    }
+
+    private func endTextEditingIfNeeded() {
+        if textEditor != nil {
+            commitTextEditing()
+        }
+    }
+
+    func textDidEndEditing(_ notification: Notification) {
+        guard !isCancellingText else { return }
+        commitTextEditing()
+    }
+
+    private func trimTrailingWhitespace(_ text: String) -> String {
+        var value = text
+        while let last = value.last, last.isWhitespace || last.isNewline {
+            value.removeLast()
+        }
+        return value
+    }
+
+    private func deleteSelectedTextIfNeeded() -> Bool {
+        guard let index = selectedTextIndex else { return false }
+        pushUndoSnapshot()
+        items.remove(at: index)
+        selectedTextIndex = nil
+        updateCanvasSizeIfNeeded()
+        needsDisplay = true
+        return true
     }
 
     // MARK: - Keyboard & gestures
 
     override func keyDown(with event: NSEvent) {
+        if textEditor != nil {
+            super.keyDown(with: event)
+            return
+        }
+
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        if isColorPickerOpen {
+            if let chars = event.characters, let index = czechKeyToColorIndex[chars] {
+                onKeyCommand?(.selectColor(index: index))
+                onKeyCommand?(.colorPickerClose)
+                return
+            }
+            switch event.keyCode {
+            case 123: // left arrow
+                onKeyCommand?(.colorPickerMove(direction: -1))
+                return
+            case 124: // right arrow
+                onKeyCommand?(.colorPickerMove(direction: 1))
+                return
+            case 36, 76: // enter
+                onKeyCommand?(.colorPickerSelect)
+                return
+            case 53: // escape
+                onKeyCommand?(.colorPickerClose)
+                return
+            default:
+                break
+            }
+        }
+
+        if !flags.contains(.command) && !flags.contains(.control) {
+            if !flags.contains(.shift), let chars = event.characters {
+                if chars == "k" || chars == "q" {
+                    if isColorPickerOpen { return }
+                    onKeyCommand?(.toggleColorPicker)
+                    return
+                }
+            }
+        }
+
+        if !flags.contains(.command) && !flags.contains(.control) && !flags.contains(.option) && !flags.contains(.shift) {
+            if let chars = event.characters {
+                switch chars {
+                case "w":
+                    onKeyCommand?(.selectTool(.pen))
+                    return
+                case "a":
+                    onKeyCommand?(.selectTool(.arrow))
+                    return
+                case "r":
+                    onKeyCommand?(.selectTool(.rectangle))
+                    return
+                case "e":
+                    onKeyCommand?(.selectTool(.ellipse))
+                    return
+                case "t":
+                    onKeyCommand?(.selectTool(.text))
+                    return
+                default:
+                    break
+                }
+            }
+        }
+
+        if flags.contains(.option) && event.keyCode == 51 {
+            onKeyCommand?(.clear)
+            return
+        }
+
+        if flags.contains(.command), let chars = event.charactersIgnoringModifiers?.lowercased() {
+            switch chars {
+            case "=", "+":
+                onKeyCommand?(.zoomIn)
+                return
+            case "-":
+                onKeyCommand?(.zoomOut)
+                return
+            case "0":
+                onKeyCommand?(.zoomReset)
+                return
+            case "z":
+                onKeyCommand?(.undo)
+                return
+            case "c":
+                onKeyCommand?(.copyToClipboard)
+                return
+            default:
+                break
+            }
+        }
 
         if let final = interpretFinalActionCommand(from: event, flags: flags) {
             onKeyCommand?(.finalAction(final))
             return
         }
 
-        if let chars = event.charactersIgnoringModifiers, !chars.isEmpty {
-            if flags.contains(.command) {
-                switch chars {
-                case "=", "+":
-                    onKeyCommand?(.zoomIn)
-                    return
-                case "-":
-                    onKeyCommand?(.zoomOut)
-                    return
-                case "0":
-                    onKeyCommand?(.zoomReset)
-                    return
-                case "z", "Z":
-                    onKeyCommand?(.undo)
-                    return
-                case "k", "K":
-                    onKeyCommand?(.clear)
-                    return
-                case "1", "2", "3", "4", "5", "6":
-                    if let digit = Int(chars), (1...6).contains(digit) {
-                        onKeyCommand?(.selectColor(index: digit - 1))
-                        return
-                    }
-                default:
-                    break
-                }
-            }
+        if event.keyCode == 48 && flags.contains(.shift) { // Shift+Tab
+            onKeyCommand?(.backToNote)
+            return
+        }
+
+        if (event.keyCode == 51 || event.keyCode == 117) && deleteSelectedTextIfNeeded() {
+            return
         }
 
         super.keyDown(with: event)
@@ -618,7 +840,7 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
 
     private func interpretFinalActionCommand(from event: NSEvent, flags: NSEvent.ModifierFlags) -> FinalActionCommand? {
         switch event.keyCode {
-        case 36: // Return
+        case 36, 76: // Return / Enter
             if flags.contains(.command) {
                 return .copyAndSave
             } else {
@@ -635,5 +857,43 @@ final class EditorCanvasView: NSView, NSTextFieldDelegate {
         }
 
         return nil
+    }
+
+    private var czechKeyToColorIndex: [String: Int] {
+        [
+            "+": 0,
+            "ě": 1,
+            "š": 2,
+            "č": 3,
+            "ř": 4,
+            "ž": 5
+        ]
+    }
+}
+
+private final class EditorInlineTextView: NSTextView {
+    var onCommit: (() -> Void)?
+    var onCancel: (() -> Void)?
+    var onDidChange: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        switch event.keyCode {
+        case 36, 76: // Return / Enter
+            if flags.contains(.shift) {
+                super.keyDown(with: event)
+            } else {
+                onCommit?()
+            }
+        case 53: // Escape
+            onCancel?()
+        default:
+            super.keyDown(with: event)
+        }
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        onDidChange?()
     }
 }

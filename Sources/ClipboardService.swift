@@ -25,6 +25,22 @@ final class ClipboardService {
         // Best-effort directory creation.
         try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
     }
+    
+    /// Removes all cached files under `~/Library/Caches/screenshotapp/clipboard`.
+    /// This keeps paste behavior correct while preventing unbounded growth during frequent use.
+    func purgeAllCachedFiles() {
+        do {
+            let urls = try fileManager.contentsOfDirectory(at: cacheDirectory,
+                                                          includingPropertiesForKeys: nil,
+                                                          options: [.skipsHiddenFiles])
+            for url in urls {
+                try? fileManager.removeItem(at: url)
+            }
+        } catch {
+            // Best-effort.
+            print("[ClipboardService] Failed to purge cache:", error)
+        }
+    }
 
     /// Places an image on the general pasteboard. Used by the editor's Copy
     /// action where only image data (not a file URL) is required.

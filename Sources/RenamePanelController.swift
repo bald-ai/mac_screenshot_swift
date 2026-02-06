@@ -18,18 +18,29 @@ final class RenamePanelController: NSWindowController {
     private var originalExtension: String = ""
 
     convenience init(initialFilename: String) {
+        Logger.shared.info("RenamePanelController: convenience init starting")
         let contentRect = NSRect(x: 0, y: 0, width: 410, height: 215)
+        Logger.shared.info("RenamePanelController: Creating FloatingInputPanel")
         let panel = FloatingInputPanel(contentRect: contentRect)
+        Logger.shared.info("RenamePanelController: FloatingInputPanel created")
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
 
+        Logger.shared.info("RenamePanelController: Calling self.init(window:)")
         self.init(window: panel)
+        Logger.shared.info("RenamePanelController: self.init(window:) completed")
+        Logger.shared.info("RenamePanelController: Configuring filename metadata")
         configureFilenameMetadata(initialFilename: initialFilename)
+        Logger.shared.info("RenamePanelController: Filename metadata configured")
+        Logger.shared.info("RenamePanelController: Configuring UI")
         configureUI(initialFilename: initialFilename)
+        Logger.shared.info("RenamePanelController: UI configured - init complete")
     }
 
     override init(window: NSWindow?) {
+        Logger.shared.info("RenamePanelController: override init(window:) called")
         super.init(window: window)
+        Logger.shared.info("RenamePanelController: super.init(window:) completed")
     }
 
     required init?(coder: NSCoder) {
@@ -62,24 +73,42 @@ final class RenamePanelController: NSWindowController {
         textField.font = NSFont.systemFont(ofSize: 13)
 
         textField.keyCommandHandler = { [weak self] command in
-            guard let self = self else { return }
+            Logger.shared.info("RenamePanelController: keyCommandHandler called with command: \(command)")
+            guard let self = self else {
+                Logger.shared.error("RenamePanelController: keyCommandHandler - self is nil!")
+                return
+            }
             let rawValue = self.textField.stringValue
+            Logger.shared.info("RenamePanelController: Raw filename: '\(rawValue)'")
             let sanitized = self.sanitizedFilename(from: rawValue)
+            Logger.shared.info("RenamePanelController: Sanitized filename: '\(sanitized)'")
             self.textField.stringValue = sanitized
 
+            Logger.shared.info("RenamePanelController: Processing command \(command), onAction is nil: \(self.onAction == nil)")
+            
             switch command {
             case .enter:
+                Logger.shared.info("RenamePanelController: Triggering .save action")
                 self.onAction?(.save(newName: sanitized))
+                Logger.shared.info("RenamePanelController: .save action completed")
             case .commandEnter:
+                Logger.shared.info("RenamePanelController: Triggering .copyAndSave action")
                 self.onAction?(.copyAndSave(newName: sanitized))
+                Logger.shared.info("RenamePanelController: .copyAndSave action completed")
             case .commandBackspace:
+                Logger.shared.info("RenamePanelController: Triggering .copyAndDelete action")
                 self.onAction?(.copyAndDelete(newName: sanitized))
+                Logger.shared.info("RenamePanelController: .copyAndDelete action completed")
             case .escape:
+                Logger.shared.info("RenamePanelController: Triggering .delete action")
                 self.onAction?(.delete)
+                Logger.shared.info("RenamePanelController: .delete action completed")
             case .tab:
+                Logger.shared.info("RenamePanelController: Triggering .goToNote action")
                 self.onAction?(.goToNote(newName: sanitized))
+                Logger.shared.info("RenamePanelController: .goToNote action completed")
             case .shiftTab:
-                NSSound.beep()
+                Logger.shared.info("RenamePanelController: .shiftTab - no action")
             }
         }
 
@@ -135,7 +164,18 @@ final class RenamePanelController: NSWindowController {
     }
 
     func show() {
-        guard let window = window else { return }
-        window.makeKeyAndOrderFront(nil)
+        Logger.shared.info("RenamePanelController: show() called")
+        guard let window = window else {
+            Logger.shared.error("RenamePanelController: show() - window is nil!")
+            return
+        }
+        // Avoid activating the app / switching Spaces; still bring the panel forward.
+        Logger.shared.info("RenamePanelController: Ordering window front (regardless), attempting to make key")
+        window.orderFrontRegardless()
+        window.makeKey()
+        Logger.shared.info("RenamePanelController: Setting first responder to text field")
+        window.makeFirstResponder(textField)
+        textField.selectText(nil)
+        Logger.shared.info("RenamePanelController: show() completed")
     }
 }

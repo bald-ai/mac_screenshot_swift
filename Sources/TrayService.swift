@@ -3,7 +3,7 @@ import AppKit
 /// Manages the NSStatusItem (menubar icon and menu).
 final class TrayService {
     private let statusItem: NSStatusItem
-    private let menu: NSMenu
+    private var menu: NSMenu?
 
     private let onScreenshotArea: () -> Void
     private let onScreenshotFull: () -> Void
@@ -18,6 +18,7 @@ final class TrayService {
         onShowSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
+        Logger.shared.info("TrayService: Initializing...")
         self.onScreenshotArea = onScreenshotArea
         self.onScreenshotFull = onScreenshotFull
         self.onStitchImages = onStitchImages
@@ -25,8 +26,10 @@ final class TrayService {
         self.onQuit = onQuit
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        menu = makeMenu()
+        Logger.shared.info("TrayService: Status item created")
         configureStatusItem()
+        menu = makeMenu()
+        Logger.shared.info("TrayService: Initialization complete")
     }
 
     private func configureStatusItem() {
@@ -70,14 +73,20 @@ final class TrayService {
             return
         }
 
+        let showMenu: () -> Void = { [weak self] in
+            guard let self = self, let menu = self.menu, let button = self.statusItem.button else { return }
+            let location = NSPoint(x: 0, y: button.bounds.height + 2)
+            menu.popUp(positioning: nil, at: location, in: button)
+        }
+
         switch event.type {
         case .rightMouseUp:
-            statusItem.popUpMenu(menu)
+            showMenu()
 
         case .leftMouseUp:
             // Control-click should behave like right-click.
             if event.modifierFlags.contains(.control) {
-                statusItem.popUpMenu(menu)
+                showMenu()
             } else {
                 onShowSettings()
             }

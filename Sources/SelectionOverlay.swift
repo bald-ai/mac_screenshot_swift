@@ -60,20 +60,32 @@ final class SelectionOverlay: NSObject {
 
     /// Begins an area selection on the display that currently contains the mouse.
     func beginSelection() {
-        guard window == nil else { return }
-
-        guard let targetScreen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else {
+        Logger.shared.info("SelectionOverlay: beginSelection called")
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.beginSelection()
+            }
             return
         }
+        guard window == nil else {
+            Logger.shared.info("SelectionOverlay: Window already exists, returning")
+            return
+        }
+
+        guard let targetScreen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else {
+            Logger.shared.error("SelectionOverlay: No target screen found")
+            return
+        }
+        Logger.shared.info("SelectionOverlay: Target screen: \(targetScreen.frame)")
 
         screen = targetScreen
 
         let style: NSWindow.StyleMask = [.borderless]
-        let window = NSWindow(contentRect: targetScreen.frame,
-                              styleMask: style,
-                              backing: .buffered,
-                              defer: false,
-                              screen: targetScreen)
+        let window = SelectionOverlayWindow(contentRect: targetScreen.frame,
+                                            styleMask: style,
+                                            backing: .buffered,
+                                            defer: false,
+                                            screen: targetScreen)
         window.isOpaque = false
         window.backgroundColor = .clear
         window.level = .screenSaver
@@ -86,7 +98,11 @@ final class SelectionOverlay: NSObject {
         view.autoresizingMask = [.width, .height]
         view.backingScaleFactor = targetScreen.backingScaleFactor
         view.onComplete = { [weak self] rectInView in
-            guard let self = self else { return }
+            guard let self = self else {
+                Logger.shared.error("SelectionOverlay: onComplete - self is nil")
+                return
+            }
+            Logger.shared.info("SelectionOverlay: onComplete with rect: \(String(describing: rectInView))")
             self.finish(with: rectInView)
         }
 
@@ -96,22 +112,41 @@ final class SelectionOverlay: NSObject {
 
         self.window = window
         self.selectionView = view
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleAppDeactivation),
+                                               name: NSApplication.didResignActiveNotification,
+                                               object: nil)
+        Logger.shared.info("SelectionOverlay: Window created and shown")
     }
 
     /// Cancels the current selection, if any.
     func cancelSelection() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in
+                self?.cancelSelection()
+            }
+            return
+        }
         finish(with: nil)
     }
 
     private func finish(with rectInView: CGRect?) {
+        Logger.shared.info("SelectionOverlay: finish called with rect: \(String(describing: rectInView))")
         guard let screen = screen else {
+            Logger.shared.error("SelectionOverlay: finish - no screen, tearing down")
             tearDown()
             return
         }
 
-        defer { tearDown() }
+        defer { 
+            Logger.shared.info("SelectionOverlay: finish - tearing down in defer")
+            tearDown() 
+        }
 
-        guard let window = window else { return }
+        guard let window = window else { 
+            Logger.shared.error("SelectionOverlay: finish - no window")
+            return 
+        }
 
         // Treat missing or tiny selections as cancellation.
         guard let rectInView = rectInView else {
@@ -148,15 +183,33 @@ final class SelectionOverlay: NSObject {
             height: rectInScreenPoints.size.height * scale
         )
 
+        Logger.shared.info("SelectionOverlay: Calling delegate with selected rect")
         delegate?.selectionOverlay(self, didSelect: rectInScreenPixels)
     }
 
     private func tearDown() {
+        Logger.shared.info("SelectionOverlay: tearDown called")
+        NotificationCenter.default.removeObserver(self,
+                                                  name: NSApplication.didResignActiveNotification,
+                                                  object: nil)
         window?.orderOut(nil)
         window = nil
         selectionView = nil
         screen = nil
+        Logger.shared.info("SelectionOverlay: tearDown completed")
     }
+}
+
+private extension SelectionOverlay {
+    @objc func handleAppDeactivation() {
+        Logger.shared.info("SelectionOverlay: App resigned active, cancelling selection")
+        cancelSelection()
+    }
+}
+
+private final class SelectionOverlayWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
 }
 
 private final class SelectionOverlayView: NSView {
@@ -168,7 +221,6 @@ private final class SelectionOverlayView: NSView {
 
     private var startPoint: NSPoint?
     private var currentPoint: NSPoint?
-    private var showsInstructionText = true
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -204,8 +256,6 @@ private final class SelectionOverlayView: NSView {
             path.stroke()
 
             drawDimensions(for: rect)
-        } else if showsInstructionText {
-            drawInstruction(in: bounds)
         }
     }
 
@@ -213,7 +263,6 @@ private final class SelectionOverlayView: NSView {
         let location = convert(event.locationInWindow, from: nil)
         startPoint = location
         currentPoint = location
-        showsInstructionText = false
         needsDisplay = true
     }
 
@@ -259,35 +308,6 @@ private final class SelectionOverlayView: NSView {
         let minY = min(p1.y, p2.y)
         let maxY = max(p1.y, p2.y)
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-    }
-
-    private func drawInstruction(in bounds: CGRect) {
-        let text = "Drag to select area, Esc to cancel"
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.75)
-        shadow.shadowBlurRadius = 4
-        shadow.shadowOffset = NSSize(width: 0, height: -1)
-
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 18, weight: .medium),
-            .foregroundColor: NSColor.white,
-            .paragraphStyle: paragraph,
-            .shadow: shadow
-        ]
-
-        let attributed = NSAttributedString(string: text, attributes: attributes)
-        let size = attributed.size()
-        let rect = CGRect(
-            x: bounds.midX - size.width / 2,
-            y: bounds.midY - size.height / 2,
-            width: size.width,
-            height: size.height
-        )
-
-        attributed.draw(in: rect)
     }
 
     private func drawDimensions(for rect: CGRect) {

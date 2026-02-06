@@ -24,6 +24,10 @@ final class ShortcutRecorderView: NSControl {
     var onChange: ((RecordedShortcut) -> Void)?
 
     private var isRecording = false
+    
+    /// Exposed so other parts of the app can ignore global hotkeys while the
+    /// user is actively recording a shortcut.
+    var isRecordingShortcut: Bool { isRecording }
 
     override var intrinsicContentSize: NSSize {
         NSSize(width: 160, height: 24)
