@@ -45,6 +45,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         let window = NSWindow(contentRect: contentRect, styleMask: style, backing: .buffered, defer: false)
         window.center()
         window.title = "Screenshot App Settings"
+        window.level = .floating
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
 
         super.init(window: window)
 
@@ -188,11 +190,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
         [areaLabel, fullLabel, reopenLabel].forEach { label in
             label.setContentHuggingPriority(.required, for: .horizontal)
+            label.setContentCompressionResistancePriority(.required, for: .horizontal)
         }
 
         areaShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
         fullShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
         reopenShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
+        [areaShortcutRecorder, fullShortcutRecorder, reopenShortcutRecorder].forEach { recorder in
+            recorder.setContentHuggingPriority(.required, for: .horizontal)
+            recorder.setContentCompressionResistancePriority(.required, for: .horizontal)
+        }
 
         areaShortcutRecorder.onChange = { [weak self] value in
             self?.handleShortcutChange(kind: .area, newValue: value)
@@ -204,20 +211,29 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             self?.handleShortcutChange(kind: .reopenFinderSelection, newValue: value)
         }
 
-        let areaRow = NSStackView(views: [areaLabel, areaShortcutRecorder])
+        let areaSpacer = NSView()
+        areaSpacer.translatesAutoresizingMaskIntoConstraints = false
+        let areaRow = NSStackView(views: [areaLabel, areaSpacer, areaShortcutRecorder])
         areaRow.orientation = .horizontal
         areaRow.alignment = .centerY
-        areaRow.spacing = 8
+        areaRow.distribution = .fill
+        areaRow.spacing = 14
 
-        let fullRow = NSStackView(views: [fullLabel, fullShortcutRecorder])
+        let fullSpacer = NSView()
+        fullSpacer.translatesAutoresizingMaskIntoConstraints = false
+        let fullRow = NSStackView(views: [fullLabel, fullSpacer, fullShortcutRecorder])
         fullRow.orientation = .horizontal
         fullRow.alignment = .centerY
-        fullRow.spacing = 8
+        fullRow.distribution = .fill
+        fullRow.spacing = 14
 
-        let reopenRow = NSStackView(views: [reopenLabel, reopenShortcutRecorder])
+        let reopenSpacer = NSView()
+        reopenSpacer.translatesAutoresizingMaskIntoConstraints = false
+        let reopenRow = NSStackView(views: [reopenLabel, reopenSpacer, reopenShortcutRecorder])
         reopenRow.orientation = .horizontal
         reopenRow.alignment = .centerY
-        reopenRow.spacing = 8
+        reopenRow.distribution = .fill
+        reopenRow.spacing = 14
 
         // Duplicate warning label
         duplicateWarningLabel.textColor = NSColor.systemRed
@@ -228,6 +244,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         rootStack.addArrangedSubview(fullRow)
         rootStack.addArrangedSubview(reopenRow)
         rootStack.addArrangedSubview(duplicateWarningLabel)
+
+        NSLayoutConstraint.activate([
+            areaRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
+            fullRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
+            reopenRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
+            areaShortcutRecorder.widthAnchor.constraint(equalToConstant: 300),
+            fullShortcutRecorder.widthAnchor.constraint(equalTo: areaShortcutRecorder.widthAnchor),
+            reopenShortcutRecorder.widthAnchor.constraint(equalTo: areaShortcutRecorder.widthAnchor)
+        ])
     }
 
     private func configureMaxSizePopUp() {

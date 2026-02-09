@@ -25,6 +25,10 @@ final class EditorWindowController: NSWindowController {
     private let settingsStore: SettingsStore
     private let notePreviewRaw: String?
     private var notePreviewContainer: NSView?
+    // Toolbar Cancel (X) should mirror the Escape behavior:
+    // - For editor sessions that own the temp file: delete on cancel.
+    // - For Finder-selected originals: close without deleting.
+    private let escapeFinalActionCommand: EditorCanvasView.FinalActionCommand
 
     private var toolButtons: [EditorTool: NSButton] = [:]
     private var colorPickerButtons: [NSButton] = []
@@ -100,14 +104,15 @@ final class EditorWindowController: NSWindowController {
     init(image: NSImage,
          settingsStore: SettingsStore,
          notePreview: String? = nil,
-         escapeKeyDeletesFile: Bool = true) {
-        let escapeFinal: EditorCanvasView.FinalActionCommand = escapeKeyDeletesFile ? .deleteOnly : .closeOnly
-        self.canvasView = EditorCanvasView(image: image, escapeFinalAction: escapeFinal)
-        self.settingsStore = settingsStore
-        self.notePreviewRaw = notePreview
+	     escapeKeyDeletesFile: Bool = true) {
+	        let escapeFinal: EditorCanvasView.FinalActionCommand = escapeKeyDeletesFile ? .deleteOnly : .closeOnly
+	        self.canvasView = EditorCanvasView(image: image, escapeFinalAction: escapeFinal)
+	        self.settingsStore = settingsStore
+	        self.notePreviewRaw = notePreview
+	        self.escapeFinalActionCommand = escapeFinal
 
-        // Provisional size. We'll resize to match the image (native-like) after building UI.
-        let contentRect = NSRect(x: 0, y: 0, width: 720, height: 520)
+	        // Provisional size. We'll resize to match the image (native-like) after building UI.
+	        let contentRect = NSRect(x: 0, y: 0, width: 720, height: 520)
 
         let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
         let window = NSWindow(contentRect: contentRect,
@@ -611,9 +616,14 @@ final class EditorWindowController: NSWindowController {
         finish(with: .saveOnly)
     }
 
-    @objc private func deletePressed() {
-        finish(with: .deleteOnly)
-    }
+	    @objc private func deletePressed() {
+	        // Match the Escape key behavior (configured per editor session).
+	        if escapeFinalActionCommand == .closeOnly {
+	            finish(with: .closeOnly)
+	        } else {
+	            finish(with: .deleteOnly)
+	        }
+	    }
 
     // MARK: - Key commands from canvas
 
@@ -732,18 +742,14 @@ final class EditorWindowController: NSWindowController {
 
         baseScale = fitScale / scaleFactor
 
-        let contentW = min(max(pointW * fitScale + totalPadding + chromeW, minW), maxW)
-        let contentH = min(max(pointH * fitScale + totalPadding + chromeH, minH), maxH)
+	        let contentW = min(max(pointW * fitScale + totalPadding + chromeW, minW), maxW)
+	        let contentH = min(max(pointH * fitScale + totalPadding + chromeH, minH), maxH)
 
-        window.setContentSize(NSSize(width: contentW, height: contentH))
+	        window.setContentSize(NSSize(width: contentW, height: contentH))
 
-        // DEBUG: Show all values in the title bar
-        let actualFrame = window.frame
-        window.title = "pt:\(Int(pointW))x\(Int(pointH)) px:\(Int(imageSize.width))x\(Int(imageSize.height)) fit:\(String(format:"%.2f", fitScale)) base:\(String(format:"%.2f", baseScale)) @\(Int(scaleFactor))x content:\(Int(contentW))x\(Int(contentH)) frame:\(Int(actualFrame.width))x\(Int(actualFrame.height))"
-
-        // If the window is bigger than the natural content (usually due to minW/minH),
-        // auto-zoom small captures so they use most of the available canvas.
-        defaultUserZoomFactor = 1.0
+	        // If the window is bigger than the natural content (usually due to minW/minH),
+	        // auto-zoom small captures so they use most of the available canvas.
+	        defaultUserZoomFactor = 1.0
         let unclampedW = pointW * fitScale + totalPadding + chromeW
         let unclampedH = pointH * fitScale + totalPadding + chromeH
         let hasExtraSlack = (contentW > unclampedW + 1.0) || (contentH > unclampedH + 1.0)

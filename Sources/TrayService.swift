@@ -7,18 +7,21 @@ final class TrayService {
 
     private let onScreenshotArea: () -> Void
     private let onScreenshotFull: () -> Void
+    private let onReopenFinderSelection: () -> Void
     private let onShowSettings: () -> Void
     private let onQuit: () -> Void
 
     init(
         onScreenshotArea: @escaping () -> Void,
         onScreenshotFull: @escaping () -> Void,
+        onReopenFinderSelection: @escaping () -> Void,
         onShowSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         Logger.shared.info("TrayService: Initializing...")
         self.onScreenshotArea = onScreenshotArea
         self.onScreenshotFull = onScreenshotFull
+        self.onReopenFinderSelection = onReopenFinderSelection
         self.onShowSettings = onShowSettings
         self.onQuit = onQuit
 
@@ -45,10 +48,7 @@ final class TrayService {
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
 
-        menu.addItem(NSMenuItem(title: "Screenshot Area", action: #selector(didSelectScreenshotArea), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Screenshot Full", action: #selector(didSelectScreenshotFull), keyEquivalent: ""))
-        menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Show App", action: #selector(didSelectShowApp), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Settings", action: #selector(didSelectSettings), keyEquivalent: ""))
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(didSelectQuit), keyEquivalent: "q")
         quitItem.keyEquivalentModifierMask = [.command]
@@ -84,7 +84,7 @@ final class TrayService {
             if event.modifierFlags.contains(.control) {
                 showMenu()
             } else {
-                onShowSettings()
+                showMenu()
             }
 
         default:
@@ -100,7 +100,11 @@ final class TrayService {
         onScreenshotFull()
     }
 
-    @objc private func didSelectShowApp() {
+    @objc private func didSelectReopenFinderSelection() {
+        onReopenFinderSelection()
+    }
+
+    @objc private func didSelectSettings() {
         onShowSettings()
     }
 

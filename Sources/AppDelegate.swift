@@ -2,7 +2,7 @@ import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: TrayService!
-    private var settingsWindowController: SettingsWindowController!
+    private var settingsWindowController: SettingsWindowController?
     private var ipcService: IPCService!
 
     private let settingsStore = SettingsStore()
@@ -32,28 +32,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Logger.shared.info("AppDelegate: HotKeyService created")
 
         statusItemController = TrayService(
-            onScreenshotArea: { [weak self] in 
+            onScreenshotArea: { [weak self] in
                 Logger.shared.info("AppDelegate: Area screenshot triggered from menu")
-                self?.triggerAreaScreenshot() 
+                self?.triggerAreaScreenshot()
             },
-            onScreenshotFull: { [weak self] in 
+            onScreenshotFull: { [weak self] in
                 Logger.shared.info("AppDelegate: Full screenshot triggered from menu")
-                self?.triggerFullScreenshot() 
+                self?.triggerFullScreenshot()
             },
-            onShowSettings: { [weak self] in 
+            onReopenFinderSelection: { [weak self] in
+                Logger.shared.info("AppDelegate: Reopen Finder Selection triggered from menu")
+                self?.triggerReopenFinderSelection()
+            },
+            onShowSettings: { [weak self] in
                 Logger.shared.info("AppDelegate: Show settings triggered")
-                self?.showSettings() 
+                self?.showSettings()
             },
-            onQuit: { 
+            onQuit: {
                 Logger.shared.info("AppDelegate: Quit triggered")
-                NSApp.terminate(nil) 
+                NSApp.terminate(nil)
             }
         )
         Logger.shared.info("AppDelegate: TrayService created")
-
-        settingsWindowController = SettingsWindowController(settingsStore: settingsStore,
-                                                            hotKeyService: hotKeyService)
-        Logger.shared.info("AppDelegate: SettingsWindowController created")
         
         // Start IPC service for CLI control
         ipcService = IPCService(appDelegate: self)
@@ -82,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func triggerAreaScreenshot() {
         Logger.shared.info("AppDelegate: triggerAreaScreenshot called")
-        if settingsWindowController.isRecordingAnyShortcut {
+        if settingsWindowController?.isRecordingAnyShortcut == true {
             Logger.shared.info("AppDelegate: triggerAreaScreenshot ignored (shortcut recording active)")
             return
         }
@@ -92,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func triggerFullScreenshot() {
         Logger.shared.info("AppDelegate: triggerFullScreenshot called")
-        if settingsWindowController.isRecordingAnyShortcut {
+        if settingsWindowController?.isRecordingAnyShortcut == true {
             Logger.shared.info("AppDelegate: triggerFullScreenshot ignored (shortcut recording active)")
             return
         }
@@ -102,7 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func triggerReopenFinderSelection() {
         Logger.shared.info("AppDelegate: triggerReopenFinderSelection called")
-        if settingsWindowController.isRecordingAnyShortcut {
+        if settingsWindowController?.isRecordingAnyShortcut == true {
             Logger.shared.info("AppDelegate: triggerReopenFinderSelection ignored (shortcut recording active)")
             return
         }
@@ -139,10 +139,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showSettings() {
         Logger.shared.info("AppDelegate: showSettings called")
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindowController.showWindow(nil)
-        Logger.shared.info("AppDelegate: showSettings completed")
+        // Menu-item actions run while NSMenu is tracking; defer opening the window
+        // to the next runloop turn so the menu can dismiss first.
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            let settingsWindowController = self.settingsWindowControllerOrCreate()
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+            settingsWindowController.showWindow(nil)
+            settingsWindowController.window?.makeKeyAndOrderFront(nil)
+            Logger.shared.info("AppDelegate: showSettings completed")
+        }
+    }
+
+    private func settingsWindowControllerOrCreate() -> SettingsWindowController {
+        if let existing = settingsWindowController {
+            return existing
+        }
+        let created = SettingsWindowController(settingsStore: settingsStore, hotKeyService: hotKeyService)
+        settingsWindowController = created
+        Logger.shared.info("AppDelegate: SettingsWindowController created")
+        return created
     }
 
     private func presentError(title: String, message: String) {

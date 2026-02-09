@@ -8,6 +8,7 @@ final class ScreenshotService: NSObject {
     private let settingsStore: SettingsStore
     private let backupService: BackupService
     private let clipboardService: ClipboardService
+    private let soundPlayer: ScreenshotSoundPlayer
 
     private let fileManager: FileManager
     private let desktopDirectory: URL
@@ -29,6 +30,7 @@ final class ScreenshotService: NSObject {
         self.settingsStore = settingsStore
         self.backupService = backupService
         self.clipboardService = clipboardService
+        self.soundPlayer = ScreenshotSoundPlayer()
         self.fileManager = fileManager
 
         let home = fileManager.homeDirectoryForCurrentUser
@@ -272,6 +274,7 @@ final class ScreenshotService: NSObject {
                 Logger.shared.info("ScreenshotService: Image saved to \(url)")
                 
                 DispatchQueue.main.async { [weak self] in
+                    self?.soundPlayer.playCaptureSound()
                     let targetScreen = self?.screenForDisplayID(screenID)
                     self?.beginPostCaptureFlow(forExistingFileAt: url, on: targetScreen)
                 }

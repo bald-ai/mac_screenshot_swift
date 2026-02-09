@@ -38,7 +38,11 @@ final class ShortcutRecorderView: NSControl {
     }
 
     override func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
+        let didBecomeFirstResponder = window?.makeFirstResponder(self) ?? false
+        if !didBecomeFirstResponder {
+            window?.makeKeyAndOrderFront(nil)
+            _ = window?.makeFirstResponder(self)
+        }
         isRecording = true
         needsDisplay = true
     }
