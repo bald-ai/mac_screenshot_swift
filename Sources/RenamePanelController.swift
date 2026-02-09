@@ -5,6 +5,7 @@ enum RenamePanelAction {
     case copyAndSave(newName: String)
     case copyAndDelete(newName: String)
     case delete
+    case close
     case goToNote(newName: String)
 }
 
@@ -12,12 +13,13 @@ final class RenamePanelController: NSWindowController {
     var onAction: ((RenamePanelAction) -> Void)?
 
     private let textField = CommandAwareTextField()
-    private let shortcutLabel = NSTextField(labelWithString: "Enter: Save    ⌘↩: Copy+Save    ⌘⌫: Copy+Delete    Esc: Delete    Tab: Note")
+    private let shortcutLabel = NSTextField(labelWithString: "")
+    private var escapeKeyDeletesFile: Bool = true
 
     private var originalBaseName: String = ""
     private var originalExtension: String = ""
 
-    convenience init(initialFilename: String) {
+    convenience init(initialFilename: String, escapeKeyDeletesFile: Bool = true) {
         Logger.shared.info("RenamePanelController: convenience init starting")
         let contentRect = NSRect(x: 0, y: 0, width: 410, height: 215)
         Logger.shared.info("RenamePanelController: Creating FloatingInputPanel")
@@ -28,6 +30,7 @@ final class RenamePanelController: NSWindowController {
 
         Logger.shared.info("RenamePanelController: Calling self.init(window:)")
         self.init(window: panel)
+        self.escapeKeyDeletesFile = escapeKeyDeletesFile
         Logger.shared.info("RenamePanelController: self.init(window:) completed")
         Logger.shared.info("RenamePanelController: Configuring filename metadata")
         configureFilenameMetadata(initialFilename: initialFilename)
@@ -100,9 +103,15 @@ final class RenamePanelController: NSWindowController {
                 self.onAction?(.copyAndDelete(newName: sanitized))
                 Logger.shared.info("RenamePanelController: .copyAndDelete action completed")
             case .escape:
-                Logger.shared.info("RenamePanelController: Triggering .delete action")
-                self.onAction?(.delete)
-                Logger.shared.info("RenamePanelController: .delete action completed")
+                if self.escapeKeyDeletesFile {
+                    Logger.shared.info("RenamePanelController: Triggering .delete action")
+                    self.onAction?(.delete)
+                    Logger.shared.info("RenamePanelController: .delete action completed")
+                } else {
+                    Logger.shared.info("RenamePanelController: Triggering .close action")
+                    self.onAction?(.close)
+                    Logger.shared.info("RenamePanelController: .close action completed")
+                }
             case .tab:
                 Logger.shared.info("RenamePanelController: Triggering .goToNote action")
                 self.onAction?(.goToNote(newName: sanitized))
@@ -112,6 +121,9 @@ final class RenamePanelController: NSWindowController {
             }
         }
 
+        let escapeLabel = escapeKeyDeletesFile ? "Delete" : "Close"
+        let shortcutsText = "Enter: Save    ⌘↩: Copy+Save    ⌘⌫: Copy+Delete    Esc: \(escapeLabel)    Tab: Note"
+        shortcutLabel.stringValue = shortcutsText
         shortcutLabel.font = NSFont.systemFont(ofSize: 11)
         shortcutLabel.textColor = NSColor.secondaryLabelColor
         shortcutLabel.lineBreakMode = .byWordWrapping

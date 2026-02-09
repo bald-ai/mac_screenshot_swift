@@ -5,6 +5,7 @@ enum NotePanelAction {
     case copyAndSave(text: String)
     case copyAndDelete(text: String)
     case delete
+    case close
     case backToRename(text: String)
     case goToEditor(text: String)
 }
@@ -13,7 +14,8 @@ final class NotePanelController: NSWindowController {
     var onAction: ((NotePanelAction) -> Void)?
 
     private let textView = CommandAwareTextView()
-    private let shortcutLabel = NSTextField(labelWithString: "Enter: Save    ⌘↩: Copy+Save    ⌘⌫: Copy+Delete    Esc: Delete    Shift+Tab: Rename    Tab: Editor")
+    private let shortcutLabel = NSTextField(labelWithString: "")
+    private var escapeKeyDeletesFile: Bool = true
 
     private static let maxLength = 1000
 
@@ -22,13 +24,14 @@ final class NotePanelController: NSWindowController {
         set { textView.string = String(newValue.prefix(Self.maxLength)) }
     }
 
-    convenience init(initialText: String) {
+    convenience init(initialText: String, escapeKeyDeletesFile: Bool = true) {
         let contentRect = NSRect(x: 0, y: 0, width: 410, height: 120)
         let panel = FloatingInputPanel(contentRect: contentRect)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
 
         self.init(window: panel)
+        self.escapeKeyDeletesFile = escapeKeyDeletesFile
         configureUI(initialText: initialText)
     }
 
@@ -71,7 +74,11 @@ final class NotePanelController: NSWindowController {
             case .commandBackspace:
                 self.onAction?(.copyAndDelete(text: value))
             case .escape:
-                self.onAction?(.delete)
+                if self.escapeKeyDeletesFile {
+                    self.onAction?(.delete)
+                } else {
+                    self.onAction?(.close)
+                }
             case .tab:
                 self.onAction?(.goToEditor(text: value))
             case .shiftTab:
@@ -92,6 +99,9 @@ final class NotePanelController: NSWindowController {
         shortcutLabel.font = NSFont.systemFont(ofSize: 11)
         shortcutLabel.textColor = NSColor.secondaryLabelColor
         shortcutLabel.lineBreakMode = .byWordWrapping
+        let escapeLabel = escapeKeyDeletesFile ? "Delete" : "Close"
+        let shortcutsText = "Enter: Save    ⌘↩: Copy+Save    ⌘⌫: Copy+Delete    Esc: \(escapeLabel)    Shift+Tab: Rename    Tab: Editor"
+        shortcutLabel.stringValue = shortcutsText
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 18),

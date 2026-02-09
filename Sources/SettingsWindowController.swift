@@ -17,7 +17,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
     private let areaShortcutRecorder: ShortcutRecorderView
     private let fullShortcutRecorder: ShortcutRecorderView
-    private let stitchShortcutRecorder: ShortcutRecorderView
+    private let reopenShortcutRecorder: ShortcutRecorderView
     private let duplicateWarningLabel: NSTextField
 
     /// Fixed set of max-width options shown in the dropdown.
@@ -37,10 +37,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
         areaShortcutRecorder = ShortcutRecorderView(frame: .zero)
         fullShortcutRecorder = ShortcutRecorderView(frame: .zero)
-        stitchShortcutRecorder = ShortcutRecorderView(frame: .zero)
+        reopenShortcutRecorder = ShortcutRecorderView(frame: .zero)
         duplicateWarningLabel = NSTextField(labelWithString: "")
 
-        let contentRect = NSRect(x: 0, y: 0, width: 520, height: 460)
+        let contentRect = NSRect(x: 0, y: 0, width: 520, height: 490)
         let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
         let window = NSWindow(contentRect: contentRect, styleMask: style, backing: .buffered, defer: false)
         window.center()
@@ -58,7 +58,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     var isRecordingAnyShortcut: Bool {
         areaShortcutRecorder.isRecordingShortcut
         || fullShortcutRecorder.isRecordingShortcut
-        || stitchShortcutRecorder.isRecordingShortcut
+        || reopenShortcutRecorder.isRecordingShortcut
     }
 
     required init?(coder: NSCoder) {
@@ -184,15 +184,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         // Shortcut rows
         let areaLabel = NSTextField(labelWithString: "Screenshot Area:")
         let fullLabel = NSTextField(labelWithString: "Screenshot Full:")
-        let stitchLabel = NSTextField(labelWithString: "Stitch Images:")
+        let reopenLabel = NSTextField(labelWithString: "Reopen Finder Selection:")
 
-        [areaLabel, fullLabel, stitchLabel].forEach { label in
+        [areaLabel, fullLabel, reopenLabel].forEach { label in
             label.setContentHuggingPriority(.required, for: .horizontal)
         }
 
         areaShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
         fullShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
-        stitchShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
+        reopenShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
 
         areaShortcutRecorder.onChange = { [weak self] value in
             self?.handleShortcutChange(kind: .area, newValue: value)
@@ -200,8 +200,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         fullShortcutRecorder.onChange = { [weak self] value in
             self?.handleShortcutChange(kind: .full, newValue: value)
         }
-        stitchShortcutRecorder.onChange = { [weak self] value in
-            self?.handleShortcutChange(kind: .stitch, newValue: value)
+        reopenShortcutRecorder.onChange = { [weak self] value in
+            self?.handleShortcutChange(kind: .reopenFinderSelection, newValue: value)
         }
 
         let areaRow = NSStackView(views: [areaLabel, areaShortcutRecorder])
@@ -214,10 +214,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         fullRow.alignment = .centerY
         fullRow.spacing = 8
 
-        let stitchRow = NSStackView(views: [stitchLabel, stitchShortcutRecorder])
-        stitchRow.orientation = .horizontal
-        stitchRow.alignment = .centerY
-        stitchRow.spacing = 8
+        let reopenRow = NSStackView(views: [reopenLabel, reopenShortcutRecorder])
+        reopenRow.orientation = .horizontal
+        reopenRow.alignment = .centerY
+        reopenRow.spacing = 8
 
         // Duplicate warning label
         duplicateWarningLabel.textColor = NSColor.systemRed
@@ -226,7 +226,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         rootStack.addArrangedSubview(shortcutsHeader)
         rootStack.addArrangedSubview(areaRow)
         rootStack.addArrangedSubview(fullRow)
-        rootStack.addArrangedSubview(stitchRow)
+        rootStack.addArrangedSubview(reopenRow)
         rootStack.addArrangedSubview(duplicateWarningLabel)
     }
 
@@ -286,7 +286,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     private func applyShortcutsToRecorders(from shortcuts: Shortcuts) {
         areaShortcutRecorder.recordedShortcut = .init(from: shortcuts.screenshotArea)
         fullShortcutRecorder.recordedShortcut = .init(from: shortcuts.screenshotFull)
-        stitchShortcutRecorder.recordedShortcut = .init(from: shortcuts.stitchImages)
+        reopenShortcutRecorder.recordedShortcut = .init(from: shortcuts.reopenFinderSelection)
     }
 
     // MARK: - Actions
@@ -335,7 +335,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     private enum ShortcutKind {
         case area
         case full
-        case stitch
+        case reopenFinderSelection
     }
 
     private func handleShortcutChange(kind: ShortcutKind, newValue: ShortcutRecorderView.RecordedShortcut) {
@@ -350,8 +350,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             shortcuts.screenshotArea = newShortcut
         case .full:
             shortcuts.screenshotFull = newShortcut
-        case .stitch:
-            shortcuts.stitchImages = newShortcut
+        case .reopenFinderSelection:
+            shortcuts.reopenFinderSelection = newShortcut
         }
 
         if hasDuplicate(shortcuts: shortcuts) {
@@ -378,7 +378,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         let values: [Shortcut] = [
             shortcuts.screenshotArea,
             shortcuts.screenshotFull,
-            shortcuts.stitchImages
+            shortcuts.reopenFinderSelection
         ]
         let set = Set(values)
         return set.count < values.count
@@ -400,6 +400,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             field.stringValue = text
         }
         updateNotePrefixCountLabel(for: text)
+
+        settingsStore.update { settings in
+            settings.notePrefix = text
+        }
     }
 
     // MARK: - NSWindowDelegate

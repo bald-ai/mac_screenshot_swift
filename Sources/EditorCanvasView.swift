@@ -27,6 +27,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         case copyAndSave
         case copyAndDelete
         case deleteOnly
+        case closeOnly
     }
 
     enum KeyCommand {
@@ -58,6 +59,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     var currentTool: Tool = .pen
     var currentColor: NSColor = .systemRed
     var isColorPickerOpen: Bool = false
+    private let escapeFinalAction: FinalActionCommand
 
     // MARK: - Internal model
 
@@ -100,8 +102,9 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     // MARK: - Init
 
-    init(image: NSImage) {
+    init(image: NSImage, escapeFinalAction: FinalActionCommand = .deleteOnly) {
         self.baseImage = image
+        self.escapeFinalAction = escapeFinalAction
         let frame = NSRect(origin: .zero, size: image.size)
         super.init(frame: frame)
     }
@@ -112,6 +115,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
+    override var isOpaque: Bool { false }
 
     // MARK: - Public API (Agent 3 spec)
 
@@ -193,9 +197,6 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-
-        NSColor.black.setFill()
-        bounds.fill()
 
         let imageRect = NSRect(origin: .zero, size: baseImage.size)
         baseImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
@@ -851,7 +852,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                 return .copyAndDelete
             }
         case 53: // Escape
-            return .deleteOnly
+            return escapeFinalAction
         default:
             break
         }

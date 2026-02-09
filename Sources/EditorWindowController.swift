@@ -20,8 +20,11 @@ final class EditorWindowController: NSWindowController {
     var onBackToNote: ((NSImage) -> Void)?
 
     private let canvasView: EditorCanvasView
-    private let scrollView = NSScrollView()
+    private let scrollView = EditorScrollView()
     private let clipboardService = ClipboardService()
+    private let settingsStore: SettingsStore
+    private let notePreviewRaw: String?
+    private var notePreviewContainer: NSView?
 
     private var toolButtons: [EditorTool: NSButton] = [:]
     private var colorPickerButtons: [NSButton] = []
@@ -32,6 +35,10 @@ final class EditorWindowController: NSWindowController {
     private let colorIndicatorButton = NSButton(frame: .zero)
     private let zoomLabel = NSTextField(labelWithString: "100%")
 
+    // Single base color used for both toolbar and window background.
+    // This avoids the "random black" / mismatched canvas look.
+    fileprivate static let editorBaseColor = NSColor(hex: "#1f6b6f")
+
     private let colors: [NSColor] = [
         NSColor(hex: "#ff3b30"),
         NSColor(hex: "#007aff"),
@@ -41,15 +48,40 @@ final class EditorWindowController: NSWindowController {
         NSColor(hex: "#ffffff")
     ]
 
-    private var currentZoom: CGFloat = 1.0
-    private let minZoom: CGFloat = 0.5
-    private let maxZoom: CGFloat = 3.0
+    // Match mac_screenshot behavior:
+    // - The window opens sized to the image (with caps).
+    // - The image may be scaled down to fit (baseScale <= 1).
+    // - Zoom controls are relative to that baseScale (start at 100%).
+    private var userZoomFactor: CGFloat = 1.0
+    private var baseScale: CGFloat = 1.0
+    private var defaultUserZoomFactor: CGFloat = 1.0
+    // Total padding amount around the image (not per-side).
+    private var totalPadding: CGFloat = 0.0
+
+    // Auto-zoom small captures so they fill most of the editor canvas.
+    private let autoZoomFillRatio: CGFloat = 0.90
+    private let maxAutoUserZoom: CGFloat = 2.0
+
+    // User zoom bounds (multiplier relative to fit).
+    private let minUserZoom: CGFloat = 0.2
+    private let maxUserZoom: CGFloat = 6.0
+
+    // Absolute bounds enforced by NSScrollView.
+    private let minEffectiveZoom: CGFloat = 0.02
+    private let maxEffectiveZoom: CGFloat = 8.0
 
     private var didSendCompletion = false
 
+    private weak var toolbarBackgroundView: NSView?
+    private var toolbarMinimumWidth: CGFloat = 520.0
+    private var toolbarMinimumHeight: CGFloat = 72.0
+
     // MARK: - Init
 
-    convenience init?(imageURL: URL) {
+    convenience init?(imageURL: URL,
+                      settingsStore: SettingsStore,
+                      notePreview: String? = nil,
+                      escapeKeyDeletesFile: Bool = true) {
         guard let image = NSImage(contentsOf: imageURL) else {
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -59,16 +91,23 @@ final class EditorWindowController: NSWindowController {
             alert.runModal()
             return nil
         }
-        self.init(image: image)
+        self.init(image: image,
+                  settingsStore: settingsStore,
+                  notePreview: notePreview,
+                  escapeKeyDeletesFile: escapeKeyDeletesFile)
     }
 
-    init(image: NSImage) {
-        self.canvasView = EditorCanvasView(image: image)
+    init(image: NSImage,
+         settingsStore: SettingsStore,
+         notePreview: String? = nil,
+         escapeKeyDeletesFile: Bool = true) {
+        let escapeFinal: EditorCanvasView.FinalActionCommand = escapeKeyDeletesFile ? .deleteOnly : .closeOnly
+        self.canvasView = EditorCanvasView(image: image, escapeFinalAction: escapeFinal)
+        self.settingsStore = settingsStore
+        self.notePreviewRaw = notePreview
 
-        let initialSize = image.size
-        let windowWidth = max(580, min(900, initialSize.width + 80))
-        let windowHeight = max(500, min(800, initialSize.height + 160))
-        let contentRect = NSRect(x: 0, y: 0, width: windowWidth, height: windowHeight)
+        // Provisional size. We'll resize to match the image (native-like) after building UI.
+        let contentRect = NSRect(x: 0, y: 0, width: 720, height: 520)
 
         let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
         let window = NSWindow(contentRect: contentRect,
@@ -76,15 +115,18 @@ final class EditorWindowController: NSWindowController {
                               backing: .buffered,
                               defer: false)
         window.title = "Edit Screenshot"
-        window.center()
-        window.setFrameAutosaveName("ScreenshotEditorWindow")
-        window.contentMinSize = NSSize(width: 580, height: 400)
-        window.backgroundColor = NSColor(calibratedRed: 0.14, green: 0.16, blue: 0.19, alpha: 1.0)
+        // Size is dynamic; do not autosave window frame.
+        window.contentMinSize = NSSize(width: 580, height: 250)
+        window.backgroundColor = Self.editorBaseColor
 
         super.init(window: window)
 
         window.delegate = self
         configureContent()
+
+        // Now that UI exists, choose an initial window size based on the image and current screen.
+        sizeWindowToImage()
+        window.center()
     }
 
     required init?(coder: NSCoder) {
@@ -93,8 +135,12 @@ final class EditorWindowController: NSWindowController {
 
     func show() {
         guard let window = window else { return }
-        window.makeKeyAndOrderFront(nil)
+        // Make the editor immediately key so keyboard shortcuts work without extra click.
+        NSApp.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        window.makeKey()
         window.makeFirstResponder(canvasView)
+        updateScrollLockAndRecentering()
     }
 
     // MARK: - UI setup
@@ -123,6 +169,7 @@ final class EditorWindowController: NSWindowController {
         let toolbarBackground = makeToolbarBackground()
         let toolbarStack = makeToolbarStack()
         toolbarBackground.addSubview(toolbarStack)
+        toolbarBackgroundView = toolbarBackground
 
         NSLayoutConstraint.activate([
             toolbarStack.topAnchor.constraint(equalTo: toolbarBackground.topAnchor, constant: 6),
@@ -131,23 +178,48 @@ final class EditorWindowController: NSWindowController {
             toolbarStack.trailingAnchor.constraint(equalTo: toolbarBackground.trailingAnchor, constant: -8)
         ])
 
+        // Compute minimum toolbar size from intrinsic content (not from the provisional window width).
+        // This is the main fix for "small screenshots open huge".
+        toolbarMinimumWidth = max(420.0, toolbarStack.fittingSize.width + 16.0)
+        toolbarMinimumHeight = max(72.0, toolbarStack.fittingSize.height + 12.0)
+
         rootStack.addArrangedSubview(toolbarBackground)
 
         scrollView.borderType = .noBorder
-        scrollView.drawsBackground = false
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = true
+        // Force the canvas background to match the toolbar/window color (no black bleed-through).
+        scrollView.drawsBackground = true
+        scrollView.backgroundColor = Self.editorBaseColor
+        // Native screenshot/markup windows do not show scrollers; panning still works
+        // with trackpad/mouse when zoomed.
+        scrollView.hasVerticalScroller = false
+        scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.allowsMagnification = true
-        scrollView.minMagnification = minZoom
-        scrollView.maxMagnification = maxZoom
+        scrollView.minMagnification = minEffectiveZoom
+        scrollView.maxMagnification = maxEffectiveZoom
+        scrollView.contentView = CenteringClipView()
+        scrollView.contentView.drawsBackground = true
+        scrollView.contentView.backgroundColor = Self.editorBaseColor
         scrollView.documentView = canvasView
-        scrollView.magnification = currentZoom
+        scrollView.magnification = 1.0
+        scrollView.shouldAllowScroll = { [weak self] in
+            return self?.isContentScrollable ?? true
+        }
 
         rootStack.addArrangedSubview(scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
         scrollView.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
-        scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 320).isActive = true
+        // Allow the window to open small for small screenshots (native behavior).
+        scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
+
+        // Note preview should feel like the burned-in bottom bar (but is UI-only).
+        // Place it under the canvas so its position matches the final saved image.
+        if let noteView = makeNotePreviewView() {
+            notePreviewContainer = noteView
+            rootStack.addArrangedSubview(noteView)
+            noteView.translatesAutoresizingMaskIntoConstraints = false
+            noteView.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
+        }
 
         canvasView.onKeyCommand = { [weak self] command in
             self?.handleKeyCommand(command)
@@ -159,17 +231,55 @@ final class EditorWindowController: NSWindowController {
         selectColor(index: 0)
     }
 
+    private func makeNotePreviewView() -> NSView? {
+        let raw = (notePreviewRaw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+
+        // Match note burning rules (prefix + 1000 char cap), but do not modify the image here.
+        var text = String(raw.prefix(1000))
+        let settings = settingsStore.settings
+        if settings.notePrefixEnabled {
+            let prefix = settings.notePrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !prefix.isEmpty {
+                text = prefix + " " + text
+            }
+        }
+
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.96).cgColor
+        container.layer?.cornerRadius = 8
+        container.layer?.borderWidth = 1
+        container.layer?.borderColor = NSColor.black.withAlphaComponent(0.10).cgColor
+
+        let label = NSTextField(wrappingLabelWithString: text)
+        label.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        label.textColor = NSColor.black
+        label.lineBreakMode = .byWordWrapping
+        label.maximumNumberOfLines = 0
+        label.translatesAutoresizingMaskIntoConstraints = false
+
+        container.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: container.topAnchor, constant: 10),
+            label.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -12),
+            label.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -10)
+        ])
+
+        return container
+    }
+
     private func makeToolbarBackground() -> NSView {
-        let background = NSVisualEffectView()
-        background.material = .hudWindow
-        background.blendingMode = .withinWindow
-        background.state = .active
+        // Use a simple layer-backed view so the toolbar color matches the window background.
+        let background = NSView()
         background.wantsLayer = true
+        background.layer?.backgroundColor = Self.editorBaseColor.withAlphaComponent(0.92).cgColor
         background.layer?.cornerRadius = 10
         background.layer?.borderWidth = 1
-        background.layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
+        background.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
         background.layer?.shadowColor = NSColor.black.cgColor
-        background.layer?.shadowOpacity = 0.25
+        background.layer?.shadowOpacity = 0.22
         background.layer?.shadowRadius = 8
         background.layer?.shadowOffset = NSSize(width: 0, height: -1)
         background.translatesAutoresizingMaskIntoConstraints = false
@@ -490,11 +600,11 @@ final class EditorWindowController: NSWindowController {
     }
 
     @objc private func zoomInPressed() {
-        setZoom(currentZoom * 1.2)
+        setZoom(userZoomFactor * 1.2)
     }
 
     @objc private func zoomOutPressed() {
-        setZoom(currentZoom / 1.2)
+        setZoom(userZoomFactor / 1.2)
     }
 
     @objc private func savePressed() {
@@ -519,14 +629,16 @@ final class EditorWindowController: NSWindowController {
                 finish(with: .copyAndDelete)
             case .deleteOnly:
                 finish(with: .deleteOnly)
+            case .closeOnly:
+                finish(with: .closeOnly)
             }
 
         case .zoomIn:
-            setZoom(currentZoom * 1.2)
+            setZoom(userZoomFactor * 1.2)
         case .zoomOut:
-            setZoom(currentZoom / 1.2)
+            setZoom(userZoomFactor / 1.2)
         case .zoomReset:
-            setZoom(1.0)
+            setZoom(defaultUserZoomFactor)
         case .undo:
             canvasView.undo()
         case .clear:
@@ -558,11 +670,154 @@ final class EditorWindowController: NSWindowController {
     }
 
     private func setZoom(_ value: CGFloat) {
-        let clamped = max(minZoom, min(maxZoom, value))
-        currentZoom = clamped
-        scrollView.magnification = clamped
-        let percent = Int(round(clamped * 100))
+        let clampedUser = max(minUserZoom, min(maxUserZoom, value))
+        userZoomFactor = clampedUser
+        applyZoom()
+    }
+
+    private func applyZoom() {
+        let desired = baseScale * userZoomFactor
+        let effective = max(minEffectiveZoom, min(maxEffectiveZoom, desired))
+
+        // Keep the user factor consistent if we had to clamp the effective zoom.
+        if baseScale > 0 {
+            userZoomFactor = max(minUserZoom, min(maxUserZoom, effective / baseScale))
+        }
+
+        scrollView.magnification = effective
+
+        // Match mac_screenshot: zoom label is user zoom (starts at 100%),
+        // independent of any base downscaling needed to fit the window.
+        let percent = Int(round(userZoomFactor * 100))
         zoomLabel.stringValue = "\(percent)%"
+
+        updateScrollLockAndRecentering()
+    }
+
+    private func sizeWindowToImage() {
+        guard let window else { return }
+        window.contentView?.layoutSubtreeIfNeeded()
+
+        let imageSize = canvasView.baseImage.size
+        guard imageSize.width > 0, imageSize.height > 0 else { return }
+
+        let scaleFactor = window.backingScaleFactor
+        let pointW = imageSize.width / scaleFactor
+        let pointH = imageSize.height / scaleFactor
+
+        let maxW: CGFloat = 1400.0
+        let maxH: CGFloat = 900.0
+        let minW: CGFloat = 580.0
+        let minH: CGFloat = 250.0
+        let toolbarH: CGFloat = toolbarMinimumHeight
+        let noteH: CGFloat = (notePreviewContainer?.fittingSize.height ?? 0)
+        let chromeW: CGFloat = 24.0
+        // Root stack spacing is 10. If we have a note preview bar, add its height + spacing.
+        let chromeH: CGFloat = 24.0 + toolbarH + 10.0 + (noteH > 0 ? (10.0 + noteH) : 0.0)
+
+        let settings = settingsStore.settings
+        let wasResized = settings.maxWidth > 0 && Int(pointW.rounded()) == settings.maxWidth
+        totalPadding = calculateEditorPadding(imgWidth: pointW, imgHeight: pointH, wasResized: wasResized)
+
+        let availableW = maxW - chromeW - totalPadding
+        let availableH = maxH - chromeH - totalPadding
+
+        var fitScale: CGFloat
+        if pointW <= availableW && pointH <= availableH {
+            fitScale = 1.0
+        } else {
+            fitScale = min(availableW / pointW, availableH / pointH)
+        }
+        if !fitScale.isFinite || fitScale <= 0 { fitScale = 1.0 }
+
+        baseScale = fitScale / scaleFactor
+
+        let contentW = min(max(pointW * fitScale + totalPadding + chromeW, minW), maxW)
+        let contentH = min(max(pointH * fitScale + totalPadding + chromeH, minH), maxH)
+
+        window.setContentSize(NSSize(width: contentW, height: contentH))
+
+        // DEBUG: Show all values in the title bar
+        let actualFrame = window.frame
+        window.title = "pt:\(Int(pointW))x\(Int(pointH)) px:\(Int(imageSize.width))x\(Int(imageSize.height)) fit:\(String(format:"%.2f", fitScale)) base:\(String(format:"%.2f", baseScale)) @\(Int(scaleFactor))x content:\(Int(contentW))x\(Int(contentH)) frame:\(Int(actualFrame.width))x\(Int(actualFrame.height))"
+
+        // If the window is bigger than the natural content (usually due to minW/minH),
+        // auto-zoom small captures so they use most of the available canvas.
+        defaultUserZoomFactor = 1.0
+        let unclampedW = pointW * fitScale + totalPadding + chromeW
+        let unclampedH = pointH * fitScale + totalPadding + chromeH
+        let hasExtraSlack = (contentW > unclampedW + 1.0) || (contentH > unclampedH + 1.0)
+
+        if hasExtraSlack {
+            // Visible scroll view size in points (canvas area).
+            let canvasW = contentW - chromeW
+            let canvasH = contentH - chromeH
+            // Image size in points at userZoomFactor = 1.0 (fitScale applied).
+            let imgW0 = pointW * fitScale
+            let imgH0 = pointH * fitScale
+
+            if canvasW > 0, canvasH > 0, imgW0 > 0, imgH0 > 0 {
+                let candidate = min((canvasW * autoZoomFillRatio) / imgW0,
+                                    (canvasH * autoZoomFillRatio) / imgH0)
+                if candidate.isFinite {
+                    defaultUserZoomFactor = max(1.0, min(maxAutoUserZoom, candidate))
+                }
+            }
+        }
+
+        userZoomFactor = defaultUserZoomFactor
+        applyZoom()
+    }
+
+    private func calculateEditorPadding(imgWidth: CGFloat, imgHeight: CGFloat, wasResized: Bool) -> CGFloat {
+        let maxPadding: CGFloat = 40.0
+        if wasResized { return 0.0 }
+
+        let fillRatioW = imgWidth / (1400.0 - maxPadding)
+        let fillRatioH = imgHeight / (900.0 - 72.0 - maxPadding)
+        let fillRatio = min(max(fillRatioW, fillRatioH), 1.0)
+        return maxPadding * (1.0 - fillRatio)
+    }
+
+    private var isContentScrollable: Bool {
+        guard let documentView = scrollView.documentView else { return false }
+        let clipSize = scrollView.contentView.bounds.size
+        let docSize = documentView.frame.size
+
+        // Small epsilon so rounding at some magnifications doesn't count as scrollable.
+        let epsilon: CGFloat = 1.0
+        return (docSize.width > clipSize.width + epsilon) || (docSize.height > clipSize.height + epsilon)
+    }
+
+    private func updateScrollLockAndRecentering() {
+        guard let documentView = scrollView.documentView else { return }
+        let clipSize = scrollView.contentView.bounds.size
+        let docSize = documentView.frame.size
+        let epsilon: CGFloat = 1.0
+
+        let scrollableX = docSize.width > clipSize.width + epsilon
+        let scrollableY = docSize.height > clipSize.height + epsilon
+
+        scrollView.horizontalScrollElasticity = scrollableX ? .automatic : .none
+        scrollView.verticalScrollElasticity = scrollableY ? .automatic : .none
+
+        // Keep non-scrollable axes centered (native feel).
+        var origin = scrollView.contentView.bounds.origin
+
+        if scrollableX {
+            origin.x = max(0, min(origin.x, docSize.width - clipSize.width))
+        } else {
+            origin.x = floor((docSize.width - clipSize.width) / 2.0)
+        }
+
+        if scrollableY {
+            origin.y = max(0, min(origin.y, docSize.height - clipSize.height))
+        } else {
+            origin.y = floor((docSize.height - clipSize.height) / 2.0)
+        }
+
+        scrollView.contentView.scroll(to: origin)
+        scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
     private func copyEditedImageToClipboard() {
@@ -593,6 +848,12 @@ extension EditorWindowController: NSWindowDelegate {
         didSendCompletion = true
         completion(image, .saveOnly)
     }
+
+    func windowDidResize(_ notification: Notification) {
+        // Native screenshot editor does not auto-scale the image when you manually resize the window.
+        // Keep zoom stable; just update panning lock and centering.
+        updateScrollLockAndRecentering()
+    }
 }
 
 extension EditorWindowController: NSPopoverDelegate {
@@ -602,21 +863,48 @@ extension EditorWindowController: NSPopoverDelegate {
     }
 }
 
+/// Centers the document view when it is smaller than the visible area.
+/// This matches the native screenshot editor feel (image stays centered while resizing).
+private final class CenteringClipView: NSClipView {
+    override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
+        var rect = super.constrainBoundsRect(proposedBounds)
+        guard let documentView else { return rect }
+
+        let docSize = documentView.frame.size
+        let clipSize = bounds.size
+
+        if docSize.width < clipSize.width {
+            rect.origin.x = floor((docSize.width - clipSize.width) / 2.0)
+        }
+        if docSize.height < clipSize.height {
+            rect.origin.y = floor((docSize.height - clipSize.height) / 2.0)
+        }
+
+        return rect
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        EditorWindowController.editorBaseColor.setFill()
+        bounds.fill()
+    }
+}
+
 private final class EditorBackgroundView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let colors = [
-            NSColor(calibratedRed: 0.17, green: 0.31, blue: 0.45, alpha: 1.0),
-            NSColor(calibratedRed: 0.12, green: 0.42, blue: 0.40, alpha: 1.0),
-            NSColor(calibratedRed: 0.42, green: 0.41, blue: 0.38, alpha: 1.0)
-        ]
-        if let gradient = NSGradient(colors: colors) ?? NSGradient(starting: colors.first ?? .black,
-                                                                   ending: colors.last ?? .darkGray) {
-            gradient.draw(in: bounds, angle: 135)
-        } else {
-            NSColor.black.setFill()
-            bounds.fill()
+        EditorWindowController.editorBaseColor.setFill()
+        bounds.fill()
+    }
+}
+
+private final class EditorScrollView: NSScrollView {
+    var shouldAllowScroll: (() -> Bool)?
+
+    override func scrollWheel(with event: NSEvent) {
+        if let shouldAllowScroll, !shouldAllowScroll() {
+            return
         }
+        super.scrollWheel(with: event)
     }
 }
 

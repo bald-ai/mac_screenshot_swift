@@ -99,12 +99,11 @@ final class ScreenshotService: NSObject {
         Logger.shared.info("ScreenshotService: captureFullScreen completed")
     }
 
-    /// Starts the rename/note flow for an already-saved image. Used by the
-    /// stitch service.
-    func beginPostCaptureFlow(forExistingFileAt url: URL, on screen: NSScreen? = nil) {
+    /// Starts the rename/note flow for an already-saved image.
+    func beginPostCaptureFlow(forExistingFileAt url: URL, on screen: NSScreen? = nil, escapeKeyDeletesFile: Bool = true) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.beginPostCaptureFlow(forExistingFileAt: url, on: screen)
+                self?.beginPostCaptureFlow(forExistingFileAt: url, on: screen, escapeKeyDeletesFile: escapeKeyDeletesFile)
             }
             return
         }
@@ -123,7 +122,8 @@ final class ScreenshotService: NSObject {
             settingsStore: settingsStore,
             clipboardService: clipboardService,
             backupService: backupService,
-            sourceScreen: screen
+            sourceScreen: screen,
+            escapeKeyDeletesFile: escapeKeyDeletesFile
         )
         Logger.shared.info("ScreenshotService: beginPostCaptureFlow - workflow created")
 
@@ -139,7 +139,7 @@ final class ScreenshotService: NSObject {
         Logger.shared.info("ScreenshotService: beginPostCaptureFlow - workflow.start() called")
     }
 
-    /// Single shared "busy gate" for user commands (captures + stitch).
+    /// Single shared "busy gate" for user commands.
     /// If true, other commands should be ignored to avoid wedging UI state.
     var isBusyForUserCommands: Bool {
         isCaptureInProgress || activeWorkflow != nil || selectionOverlay != nil

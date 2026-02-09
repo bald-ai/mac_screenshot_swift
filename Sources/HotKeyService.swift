@@ -6,7 +6,7 @@ import Carbon
 ///
 /// This service owns the lifecycle of the global hotkeys and provides a small
 /// surface area for the rest of the app:
-/// - `registerShortcuts(settings:areaHandler:fullHandler:stitchHandler:)` is
+/// - `registerShortcuts(settings:areaHandler:fullHandler:)` is
 ///    called once on launch from `AppDelegate`.
 /// - `updateShortcuts(settings:)` is called whenever the user changes shortcut
 ///    preferences in the settings window.
@@ -16,7 +16,7 @@ final class HotKeyService {
     private enum HotKeyKind: UInt32 {
         case screenshotArea = 1
         case screenshotFull = 2
-        case stitchImages  = 3
+        case reopenFinderSelection = 3
     }
 
     private struct Registration {
@@ -32,7 +32,7 @@ final class HotKeyService {
 
     private var areaHandler: Handler?
     private var fullHandler: Handler?
-    private var stitchHandler: Handler?
+    private var reopenFinderSelectionHandler: Handler?
 
     init() {
         installEventHandlerIfNeeded()
@@ -42,7 +42,7 @@ final class HotKeyService {
         unregisterAll()
     }
 
-    /// Registers the three primary shortcuts and installs their handlers.
+    /// Registers the primary shortcuts and installs their handlers.
     ///
     /// This should be called once during app launch. Subsequent changes to the
     /// shortcuts (via the settings UI) should go through `updateShortcuts`.
@@ -50,12 +50,12 @@ final class HotKeyService {
         settings: Settings,
         areaHandler: @escaping Handler,
         fullHandler: @escaping Handler,
-        stitchHandler: @escaping Handler
+        reopenFinderSelectionHandler: @escaping Handler
     ) {
         Logger.shared.info("HotKeyService: registerShortcuts called")
         self.areaHandler = areaHandler
         self.fullHandler = fullHandler
-        self.stitchHandler = stitchHandler
+        self.reopenFinderSelectionHandler = reopenFinderSelectionHandler
 
         applyShortcuts(from: settings)
         Logger.shared.info("HotKeyService: registerShortcuts completed")
@@ -66,7 +66,7 @@ final class HotKeyService {
     /// This is used by the settings window when the user records new
     /// key combinations.
     func updateShortcuts(settings: Settings) {
-        guard areaHandler != nil, fullHandler != nil, stitchHandler != nil else {
+        guard areaHandler != nil, fullHandler != nil, reopenFinderSelectionHandler != nil else {
             return
         }
         applyShortcuts(from: settings)
@@ -85,9 +85,9 @@ final class HotKeyService {
         registerShortcut(kind: .screenshotFull,
                          shortcut: settings.shortcuts.screenshotFull,
                          handler: fullHandler)
-        registerShortcut(kind: .stitchImages,
-                         shortcut: settings.shortcuts.stitchImages,
-                         handler: stitchHandler)
+        registerShortcut(kind: .reopenFinderSelection,
+                         shortcut: settings.shortcuts.reopenFinderSelection,
+                         handler: reopenFinderSelectionHandler)
         Logger.shared.info("HotKeyService: applyShortcuts completed")
     }
 

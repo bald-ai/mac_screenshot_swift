@@ -83,7 +83,7 @@ struct Shortcut: Codable, Equatable, Hashable {
 struct Shortcuts: Codable, Equatable {
     var screenshotArea: Shortcut
     var screenshotFull: Shortcut
-    var stitchImages: Shortcut
+    var reopenFinderSelection: Shortcut
 }
 
 extension Shortcuts {
@@ -101,11 +101,30 @@ extension Shortcuts {
             modifierFlags: UInt32(cmdKey | shiftKey)
         ),
         // Cmd + Shift + 2
-        stitchImages: Shortcut(
+        reopenFinderSelection: Shortcut(
             keyCode: UInt32(kVK_ANSI_2),
             modifierFlags: UInt32(cmdKey | shiftKey)
         )
     )
+}
+
+extension Shortcuts {
+    // Backward-compatible decoding: older settings files won't have the new key.
+    private enum CodingKeys: String, CodingKey {
+        case screenshotArea
+        case screenshotFull
+        case reopenFinderSelection
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.screenshotArea = try container.decodeIfPresent(Shortcut.self, forKey: .screenshotArea)
+            ?? Shortcuts.default.screenshotArea
+        self.screenshotFull = try container.decodeIfPresent(Shortcut.self, forKey: .screenshotFull)
+            ?? Shortcuts.default.screenshotFull
+        self.reopenFinderSelection = try container.decodeIfPresent(Shortcut.self, forKey: .reopenFinderSelection)
+            ?? Shortcuts.default.reopenFinderSelection
+    }
 }
 
 // MARK: - Filename Template
@@ -217,7 +236,12 @@ extension FilenameTemplate {
                     components.append(text)
                 }
             case .date:
-                dateFormatter.dateFormat = block.format?.isEmpty == false ? block.format! : "yyyy-MM-dd"
+                if let fmt = block.format {
+                    guard !fmt.isEmpty else { continue }
+                    dateFormatter.dateFormat = fmt
+                } else {
+                    dateFormatter.dateFormat = "yyyy-MM-dd"
+                }
                 components.append(dateFormatter.string(from: date))
             case .time:
                 dateFormatter.dateFormat = block.format?.isEmpty == false ? block.format! : "HH.mm.ss"

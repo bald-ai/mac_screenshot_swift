@@ -11,6 +11,7 @@ final class ScreenshotWorkflowController {
         case copyAndSave
         case copyAndDelete
         case deleteOnly
+        case closeOnly
     }
 
     private var fileURL: URL
@@ -18,6 +19,7 @@ final class ScreenshotWorkflowController {
     private let clipboardService: ClipboardService
     private let backupService: BackupService
     private let sourceScreen: NSScreen?
+    private let escapeKeyDeletesFile: Bool
 
     private var renameController: RenamePanelController?
     private var noteController: NotePanelController?
@@ -26,6 +28,7 @@ final class ScreenshotWorkflowController {
     private var pendingNoteText: String = ""
     private var burnedNoteText: String = ""
     private var hasCreatedBackup = false
+    private var backupOriginalURL: URL?
 
     /// Optional callback invoked once the workflow has fully completed.
     var onFinish: (() -> Void)?
@@ -34,13 +37,15 @@ final class ScreenshotWorkflowController {
          settingsStore: SettingsStore,
          clipboardService: ClipboardService,
          backupService: BackupService,
-         sourceScreen: NSScreen?) {
+         sourceScreen: NSScreen?,
+         escapeKeyDeletesFile: Bool) {
         Logger.shared.info("ScreenshotWorkflowController: Initializing with file \(fileURL)")
         self.fileURL = fileURL
         self.settingsStore = settingsStore
         self.clipboardService = clipboardService
         self.backupService = backupService
         self.sourceScreen = sourceScreen
+        self.escapeKeyDeletesFile = escapeKeyDeletesFile
         Logger.shared.info("ScreenshotWorkflowController: Initialization complete")
     }
 
@@ -84,7 +89,8 @@ final class ScreenshotWorkflowController {
             return
         }
         Logger.shared.info("ScreenshotWorkflowController: Creating RenamePanelController with filename: \(fileURL.lastPathComponent)")
-        let controller = RenamePanelController(initialFilename: fileURL.lastPathComponent)
+        let controller = RenamePanelController(initialFilename: fileURL.lastPathComponent,
+                                               escapeKeyDeletesFile: escapeKeyDeletesFile)
         Logger.shared.info("ScreenshotWorkflowController: RenamePanelController created")
         controller.onAction = { [weak self] action in
             self?.handleRenameAction(action)
@@ -103,7 +109,8 @@ final class ScreenshotWorkflowController {
 
     private func presentNotePanel(existingText: String = "") {
         let initialText = existingText.isEmpty ? pendingNoteText : existingText
-        let controller = NotePanelController(initialText: initialText)
+        let controller = NotePanelController(initialText: initialText,
+                                             escapeKeyDeletesFile: escapeKeyDeletesFile)
         controller.onAction = { [weak self] action in
             self?.handleNoteAction(action)
         }
@@ -166,6 +173,11 @@ final class ScreenshotWorkflowController {
             Logger.shared.info("ScreenshotWorkflowController: Processing .delete")
             complete(action: .deleteOnly, note: nil)
             Logger.shared.info("ScreenshotWorkflowController: .delete flow completed")
+
+        case .close:
+            Logger.shared.info("ScreenshotWorkflowController: Processing .close")
+            closeWorkflowWithoutDeleting()
+            Logger.shared.info("ScreenshotWorkflowController: .close flow completed")
 
         case .goToNote(let newName):
             Logger.shared.info("ScreenshotWorkflowController: Processing .goToNote with name: '\(newName)'")
@@ -265,6 +277,9 @@ final class ScreenshotWorkflowController {
         case .delete:
             complete(action: .deleteOnly, note: nil)
 
+        case .close:
+            closeWorkflowWithoutDeleting()
+
         case .backToRename(let text):
             pendingNoteText = text
             // Open the destination panel first, then close the source panel.
@@ -282,14 +297,14 @@ final class ScreenshotWorkflowController {
     // MARK: - Editor
 
     private func openEditor(withNote text: String) {
-        // Apply the note first so the editor sees the captioned image.
-        guard applyNoteIfNeeded(text) else { return }
-
         // Close the note panel; the rename panel is already closed by this point.
         noteController?.close()
         noteController = nil
 
-        guard let editor = EditorWindowController(imageURL: fileURL) else {
+        guard let editor = EditorWindowController(imageURL: fileURL,
+                                                  settingsStore: settingsStore,
+                                                  notePreview: text,
+                                                  escapeKeyDeletesFile: escapeKeyDeletesFile) else {
             // If the editor fails to load, fall back to a regular save.
             complete(action: .saveOnly, note: nil)
             return
@@ -318,23 +333,45 @@ final class ScreenshotWorkflowController {
         editorController = nil
 
         if let image = editedImage {
+            // Editor returns a flattened image. If there's a pending note, burn it once
+            // right before saving/copying so it never stacks/duplicates.
+            let trimmedNote = pendingNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let finalImage: NSImage
+            if !trimmedNote.isEmpty, let noted = notedImage(base: image, rawNote: trimmedNote) {
+                finalImage = noted
+                burnedNoteText = String(trimmedNote.prefix(1000))
+            } else {
+                finalImage = image
+                burnedNoteText = ""
+            }
+
             switch action {
             case .saveOnly, .copyAndSave:
-                saveEditedImage(image)
+                // Save the final (possibly noted) image to disk.
+                saveEditedImage(finalImage)
+                // Workflow finished normally: remove backup if one was created.
+                removeBackupIfNeeded()
             case .copyAndDelete, .deleteOnly:
                 break
+            case .closeOnly:
+                // Cancel/close: do not write to disk; restore original if needed.
+                if restoreOriginalFromBackupIfAvailable() {
+                    removeBackupIfNeeded()
+                }
             }
 
             switch action {
             case .saveOnly:
                 break
             case .copyAndSave:
-                clipboardService.writeImage(image)
+                clipboardService.writeImage(finalImage)
             case .copyAndDelete:
-                clipboardService.writeImage(image)
+                clipboardService.writeImage(finalImage)
                 deleteFileAndBackup()
             case .deleteOnly:
                 deleteFileAndBackup()
+            case .closeOnly:
+                break
             }
         } else {
             switch action {
@@ -347,6 +384,10 @@ final class ScreenshotWorkflowController {
                 deleteFileAndBackup()
             case .deleteOnly:
                 deleteFileAndBackup()
+            case .closeOnly:
+                if restoreOriginalFromBackupIfAvailable() {
+                    removeBackupIfNeeded()
+                }
             }
         }
 
@@ -357,13 +398,13 @@ final class ScreenshotWorkflowController {
         ensureBackupExists()
 
         let quality = settingsStore.settings.quality
-        guard let data = jpegData(from: image, quality: quality) else {
-            presentError(title: "Failed to encode image", message: "Could not encode edited image as JPEG.")
+        guard let (data, outputURL) = encodedImageData(from: image, originalURL: fileURL, quality: quality) else {
+            presentError(title: "Failed to encode image", message: "Could not encode the edited image.")
             return
         }
 
         do {
-            try data.write(to: fileURL, options: .atomic)
+            try writeEncodedImageData(data, to: outputURL, originalURL: fileURL)
         } catch {
             presentError(title: "Failed to write image", message: error.localizedDescription)
         }
@@ -373,6 +414,14 @@ final class ScreenshotWorkflowController {
         guard !hasCreatedBackup else { return }
         backupService.createBackup(forOriginalURL: fileURL)
         hasCreatedBackup = true
+        backupOriginalURL = fileURL
+    }
+
+    private func removeBackupIfNeeded() {
+        guard hasCreatedBackup else { return }
+        backupService.removeBackup(forOriginalURL: backupOriginalURL ?? fileURL)
+        hasCreatedBackup = false
+        backupOriginalURL = nil
     }
 
     // MARK: - Completion
@@ -389,14 +438,20 @@ final class ScreenshotWorkflowController {
 
         switch action {
         case .saveOnly:
-            break
+            // Mirror legacy behavior: if we created a backup during note/editor work,
+            // drop it on successful completion to avoid orphaned backups.
+            removeBackupIfNeeded()
         case .copyAndSave:
             clipboardService.copyFile(at: fileURL, useCache: false)
+            removeBackupIfNeeded()
         case .copyAndDelete:
             clipboardService.copyFile(at: fileURL, useCache: true)
             deleteFileAndBackup()
         case .deleteOnly:
             deleteFileAndBackup()
+        case .closeOnly:
+            closeWorkflowWithoutDeleting()
+            return
         }
 
         burnedNoteText = ""
@@ -408,7 +463,9 @@ final class ScreenshotWorkflowController {
         if fm.fileExists(atPath: fileURL.path) {
             try? fm.removeItem(at: fileURL)
         }
-        backupService.removeBackup(forOriginalURL: fileURL)
+        backupService.removeBackup(forOriginalURL: backupOriginalURL ?? fileURL)
+        hasCreatedBackup = false
+        backupOriginalURL = nil
     }
 
     // MARK: - Note rendering
@@ -444,13 +501,13 @@ final class ScreenshotWorkflowController {
             return false
         }
 
-        guard let data = jpegData(from: updated, quality: settings.quality) else {
+        guard let (data, outputURL) = encodedImageData(from: updated, originalURL: fileURL, quality: settings.quality) else {
             presentError(title: "Failed to apply note", message: "Could not encode the noted image.")
             return false
         }
 
         do {
-            try data.write(to: fileURL, options: .atomic)
+            try writeEncodedImageData(data, to: outputURL, originalURL: fileURL)
         } catch {
             presentError(title: "Failed to write note", message: error.localizedDescription)
             return false
@@ -459,21 +516,60 @@ final class ScreenshotWorkflowController {
         return true
     }
 
+    private func notedImage(base image: NSImage, rawNote: String) -> NSImage? {
+        var text = rawNote.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        text = String(text.prefix(1000))
+
+        let settings = settingsStore.settings
+        if settings.notePrefixEnabled {
+            let prefix = settings.notePrefix.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !prefix.isEmpty {
+                text = prefix + " " + text
+            }
+        }
+
+        return burn(note: text, into: image)
+    }
+
     private func restoreOriginalFromBackupIfAvailable() -> Bool {
-        let backupURL = backupService.backupURL(forOriginalURL: fileURL)
+        let originalURL = backupOriginalURL ?? fileURL
+        let backupURL = backupService.backupURL(forOriginalURL: originalURL)
         let fm = FileManager.default
         guard fm.fileExists(atPath: backupURL.path) else { return true }
 
         do {
-            if fm.fileExists(atPath: fileURL.path) {
-                try fm.removeItem(at: fileURL)
+            if fm.fileExists(atPath: fileURL.path), fileURL != originalURL {
+                // If format conversion changed the output URL (e.g. HEIC -> JPG),
+                // remove the converted file before restoring the original.
+                try? fm.removeItem(at: fileURL)
             }
-            try fm.copyItem(at: backupURL, to: fileURL)
+            if fm.fileExists(atPath: originalURL.path) {
+                try fm.removeItem(at: originalURL)
+            }
+            try fm.copyItem(at: backupURL, to: originalURL)
+            fileURL = originalURL
             return true
         } catch {
             presentError(title: "Failed to restore original", message: error.localizedDescription)
             return false
         }
+    }
+
+    private func closeWorkflowWithoutDeleting() {
+        // Cancel/close semantics for "reopen" flow: close panels without deleting the file.
+        // If we have a backup (note/editor touched disk), restore it first.
+        if !restoreOriginalFromBackupIfAvailable() { return }
+        removeBackupIfNeeded()
+
+        renameController?.close()
+        noteController?.close()
+        editorController?.close()
+        renameController = nil
+        noteController = nil
+        editorController = nil
+        burnedNoteText = ""
+        onFinish?()
     }
 
     private func burn(note text: String, into image: NSImage) -> NSImage? {
@@ -624,11 +720,75 @@ final class ScreenshotWorkflowController {
     }
 
     private func jpegData(from image: NSImage, quality: Int) -> Data? {
+        // Kept for backwards-compat calls; prefer `encodedImageData(...)`.
         guard let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
         let clamped = max(10, min(100, quality))
         let compression = CGFloat(clamped) / 100.0
         return bitmap.representation(using: .jpeg, properties: [.compressionFactor: compression])
+    }
+
+    private func encodedImageData(from image: NSImage, originalURL: URL, quality: Int) -> (data: Data, outputURL: URL)? {
+        let ext = originalURL.pathExtension.lowercased()
+
+        let (fileType, outputExtension, shouldChangeExtensionOnWrite): (NSBitmapImageRep.FileType, String, Bool) = {
+            switch ext {
+            case "png":
+                return (.png, "png", false)
+            case "tif", "tiff":
+                return (.tiff, ext, false) // preserve tif vs tiff spelling
+            case "bmp":
+                return (.bmp, "bmp", false)
+            case "gif":
+                return (.gif, "gif", false)
+            case "jpg", "jpeg":
+                return (.jpeg, ext, false) // preserve jpg vs jpeg spelling
+            case "heic", "heif":
+                // NSBitmapImageRep cannot encode HEIC. Fall back to JPEG.
+                return (.jpeg, "jpg", true)
+            default:
+                // Unknown extension; safest default is JPEG.
+                return (.jpeg, "jpg", false)
+            }
+        }()
+
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
+
+        let properties: [NSBitmapImageRep.PropertyKey: Any]
+        if fileType == .jpeg {
+            let clamped = max(10, min(100, quality))
+            let compression = CGFloat(clamped) / 100.0
+            properties = [.compressionFactor: compression]
+        } else {
+            properties = [:]
+        }
+
+        guard let data = bitmap.representation(using: fileType, properties: properties) else { return nil }
+
+        let outputURL: URL
+        if shouldChangeExtensionOnWrite && !ext.isEmpty && outputExtension != ext {
+            // Extension changed (e.g. HEIC -> JPG). Pick a non-colliding target name.
+            let proposedName = originalURL.deletingPathExtension().lastPathComponent + "." + outputExtension
+            outputURL = uniqueURL(forProposedName: proposedName, in: originalURL.deletingLastPathComponent())
+        } else {
+            outputURL = originalURL
+        }
+
+        return (data, outputURL)
+    }
+
+    private func writeEncodedImageData(_ data: Data, to outputURL: URL, originalURL: URL) throws {
+        try data.write(to: outputURL, options: .atomic)
+
+        if outputURL != originalURL {
+            // We wrote a new file with a new extension (e.g. HEIC -> JPG). Remove the old one.
+            let fm = FileManager.default
+            if fm.fileExists(atPath: originalURL.path) {
+                try? fm.removeItem(at: originalURL)
+            }
+            fileURL = outputURL
+        }
     }
 
     // MARK: - Errors
@@ -690,6 +850,27 @@ final class FloatingInputPanel: NSPanel {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         Logger.shared.info("FloatingInputPanel: performKeyEquivalent called with keyCode: \(event.keyCode)")
+        // Non-activating panels often don't get the standard Edit menu key equivalents
+        // wired up (Cmd+C/V/X/A). Route them through the responder chain explicitly so
+        // copy/paste works in our rename/note fields without activating the app.
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == [.command],
+           let chars = event.charactersIgnoringModifiers?.lowercased(),
+           chars.count == 1 {
+            switch chars {
+            case "c":
+                if NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: self) { return true }
+            case "v":
+                if NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: self) { return true }
+            case "x":
+                if NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: self) { return true }
+            case "a":
+                if NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: self) { return true }
+            default:
+                break
+            }
+        }
+
         return super.performKeyEquivalent(with: event)
     }
 }

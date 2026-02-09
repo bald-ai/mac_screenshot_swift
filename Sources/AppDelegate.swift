@@ -8,7 +8,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsStore = SettingsStore()
     private var hotKeyService: HotKeyService!
     private var screenshotService: ScreenshotService!
-    private var stitchService: StitchService!
     private var clipboardService: ClipboardService!
     private var backupService: BackupService!
 
@@ -29,7 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         screenshotService = ScreenshotService(settingsStore: settingsStore,
                                              backupService: backupService,
                                              clipboardService: clipboardService)
-        stitchService = StitchService(screenshotService: screenshotService)
         hotKeyService = HotKeyService()
         Logger.shared.info("AppDelegate: HotKeyService created")
 
@@ -41,10 +39,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             onScreenshotFull: { [weak self] in 
                 Logger.shared.info("AppDelegate: Full screenshot triggered from menu")
                 self?.triggerFullScreenshot() 
-            },
-            onStitchImages: { [weak self] in 
-                Logger.shared.info("AppDelegate: Stitch triggered from menu")
-                self?.triggerStitch() 
             },
             onShowSettings: { [weak self] in 
                 Logger.shared.info("AppDelegate: Show settings triggered")
@@ -83,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyService.registerShortcuts(settings: settingsStore.settings,
                                         areaHandler: { [weak self] in self?.triggerAreaScreenshot() },
                                         fullHandler: { [weak self] in self?.triggerFullScreenshot() },
-                                        stitchHandler: { [weak self] in self?.triggerStitch() })
+                                        reopenFinderSelectionHandler: { [weak self] in self?.triggerReopenFinderSelection() })
     }
 
     private func triggerAreaScreenshot() {
@@ -106,14 +100,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Logger.shared.info("AppDelegate: triggerFullScreenshot completed")
     }
 
-    private func triggerStitch() {
-        Logger.shared.info("AppDelegate: triggerStitch called")
+    private func triggerReopenFinderSelection() {
+        Logger.shared.info("AppDelegate: triggerReopenFinderSelection called")
         if settingsWindowController.isRecordingAnyShortcut {
-            Logger.shared.info("AppDelegate: triggerStitch ignored (shortcut recording active)")
+            Logger.shared.info("AppDelegate: triggerReopenFinderSelection ignored (shortcut recording active)")
             return
         }
-        stitchService.stitchFromFinderSelection()
-        Logger.shared.info("AppDelegate: triggerStitch completed")
+        if screenshotService.isBusyForUserCommands {
+            Logger.shared.info("AppDelegate: triggerReopenFinderSelection ignored (app busy)")
+            return
+        }
+
+        do {
+            let selection = try FinderSelectionService.selection()
+            let url: URL
+            switch selection {
+            case .none:
+                presentError(title: "No Finder Selection", message: "Select an image file in Finder, then press the shortcut again.")
+                return
+            case .multiple(let count):
+                presentError(title: "Multiple Finder Items Selected", message: "Select exactly 1 image file in Finder (you selected \(count)), then press the shortcut again.")
+                return
+            case .single(let selectedURL):
+                url = selectedURL
+            }
+            guard NSImage(contentsOf: url) != nil else {
+                presentError(title: "Not an Image", message: "The selected Finder item is not a readable image.")
+                return
+            }
+
+            screenshotService.beginPostCaptureFlow(forExistingFileAt: url, on: nil, escapeKeyDeletesFile: false)
+        } catch {
+            presentError(title: "Finder Error", message: error.localizedDescription)
+        }
+
+        Logger.shared.info("AppDelegate: triggerReopenFinderSelection completed")
     }
 
     private func showSettings() {
@@ -122,6 +143,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         settingsWindowController.showWindow(nil)
         Logger.shared.info("AppDelegate: showSettings completed")
+    }
+
+    private func presentError(title: String, message: String) {
+        let showAlert = {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = title
+            alert.informativeText = message
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+        if Thread.isMainThread {
+            showAlert()
+        } else {
+            DispatchQueue.main.async(execute: showAlert)
+        }
     }
 
     // MARK: - IPC Access

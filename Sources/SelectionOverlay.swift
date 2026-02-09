@@ -192,6 +192,7 @@ final class SelectionOverlay: NSObject {
         NotificationCenter.default.removeObserver(self,
                                                   name: NSApplication.didResignActiveNotification,
                                                   object: nil)
+        NSCursor.pop()
         window?.orderOut(nil)
         window = nil
         selectionView = nil
@@ -226,7 +227,10 @@ private final class SelectionOverlayView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        window?.invalidateCursorRects(for: self)
+        if window != nil {
+            NSCursor.crosshair.push()
+            window?.invalidateCursorRects(for: self)
+        }
     }
 
     override func resetCursorRects() {

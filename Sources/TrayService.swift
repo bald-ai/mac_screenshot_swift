@@ -7,21 +7,18 @@ final class TrayService {
 
     private let onScreenshotArea: () -> Void
     private let onScreenshotFull: () -> Void
-    private let onStitchImages: () -> Void
     private let onShowSettings: () -> Void
     private let onQuit: () -> Void
 
     init(
         onScreenshotArea: @escaping () -> Void,
         onScreenshotFull: @escaping () -> Void,
-        onStitchImages: @escaping () -> Void,
         onShowSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
         Logger.shared.info("TrayService: Initializing...")
         self.onScreenshotArea = onScreenshotArea
         self.onScreenshotFull = onScreenshotFull
-        self.onStitchImages = onStitchImages
         self.onShowSettings = onShowSettings
         self.onQuit = onQuit
 
@@ -50,7 +47,6 @@ final class TrayService {
 
         menu.addItem(NSMenuItem(title: "Screenshot Area", action: #selector(didSelectScreenshotArea), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Screenshot Full", action: #selector(didSelectScreenshotFull), keyEquivalent: ""))
-        menu.addItem(NSMenuItem(title: "Stitch Images", action: #selector(didSelectStitchImages), keyEquivalent: ""))
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Show App", action: #selector(didSelectShowApp), keyEquivalent: ""))
 
@@ -102,10 +98,6 @@ final class TrayService {
 
     @objc private func didSelectScreenshotFull() {
         onScreenshotFull()
-    }
-
-    @objc private func didSelectStitchImages() {
-        onStitchImages()
     }
 
     @objc private func didSelectShowApp() {
