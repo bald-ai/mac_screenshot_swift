@@ -303,6 +303,7 @@ final class EditorWindowController: NSWindowController {
         let rectButton = makeToolButton(symbol: "square", tool: .rectangle, toolTip: "Rectangle (R)")
         let ovalButton = makeToolButton(symbol: "circle", tool: .ellipse, toolTip: "Ellipse (E)")
         let textButton = makeToolButton(symbol: "textformat", tool: .text, toolTip: "Text (T)")
+        let selectionButton = makeToolButton(symbol: "rectangle.dashed", tool: .selection, toolTip: "Selection (S)")
 
         let undoButton = makeActionButton(symbol: "arrow.uturn.left", toolTip: "Undo (Cmd+Z)", action: #selector(undoPressed))
         let clearButton = makeActionButton(symbol: "trash", toolTip: "Clear (Option+Backspace)", action: #selector(clearPressed))
@@ -329,6 +330,7 @@ final class EditorWindowController: NSWindowController {
             rectButton,
             ovalButton,
             textButton,
+            selectionButton,
             makeDivider(),
             colorIndicatorButton,
             makeDivider(),
@@ -497,6 +499,7 @@ final class EditorWindowController: NSWindowController {
         case .rectangle: return 2
         case .ellipse: return 3
         case .text: return 4
+        case .selection: return 5
         }
     }
 
@@ -507,6 +510,7 @@ final class EditorWindowController: NSWindowController {
         case 2: return .rectangle
         case 3: return .ellipse
         case 4: return .text
+        case 5: return .selection
         default: return nil
         }
     }
@@ -675,7 +679,11 @@ final class EditorWindowController: NSWindowController {
         case .colorPickerClose:
             closeColorPicker()
         case .copyToClipboard:
-            copyEditedImageToClipboard()
+            copySelectionOrEditedImageToClipboard()
+        case .cutSelectionToClipboard:
+            cutSelectionToClipboard()
+        case .pasteSelectionInCanvas:
+            pasteSelectionInCanvas()
         }
     }
 
@@ -826,9 +834,22 @@ final class EditorWindowController: NSWindowController {
         scrollView.reflectScrolledClipView(scrollView.contentView)
     }
 
-    private func copyEditedImageToClipboard() {
-        let image = canvasView.compositeImage()
-        clipboardService.writeImage(image)
+    private func copySelectionOrEditedImageToClipboard() {
+        if let payload = canvasView.selectedRegionPayload() {
+            clipboardService.writeImage(payload.image)
+            return
+        }
+        clipboardService.writeImage(canvasView.compositeImage())
+    }
+
+    private func cutSelectionToClipboard() {
+        guard let payload = canvasView.selectedRegionPayload() else { return }
+        clipboardService.writeImage(payload.image)
+        _ = canvasView.cutSelectedRegion()
+    }
+
+    private func pasteSelectionInCanvas() {
+        _ = canvasView.pasteCopiedSelection()
     }
 
     // MARK: - Finishing

@@ -721,7 +721,8 @@ final class ScreenshotWorkflowController {
 
     private func jpegData(from image: NSImage, quality: Int) -> Data? {
         // Kept for backwards-compat calls; prefer `encodedImageData(...)`.
-        guard let tiff = image.tiffRepresentation,
+        let sourceImage = flattenedToEditorBackgroundIfNeeded(image, for: .jpeg)
+        guard let tiff = sourceImage.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
         let clamped = max(10, min(100, quality))
         let compression = CGFloat(clamped) / 100.0
@@ -752,7 +753,8 @@ final class ScreenshotWorkflowController {
             }
         }()
 
-        guard let tiff = image.tiffRepresentation,
+        let sourceImage = flattenedToEditorBackgroundIfNeeded(image, for: fileType)
+        guard let tiff = sourceImage.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
 
         let properties: [NSBitmapImageRep.PropertyKey: Any]
@@ -776,6 +778,30 @@ final class ScreenshotWorkflowController {
         }
 
         return (data, outputURL)
+    }
+
+    private func flattenedToEditorBackgroundIfNeeded(_ image: NSImage,
+                                                     for fileType: NSBitmapImageRep.FileType) -> NSImage {
+        guard fileType == .jpeg else { return image }
+
+        let size = image.size
+        let flattened = NSImage(size: size)
+        flattened.lockFocusFlipped(true)
+        // Match editor canvas background color (#1f6b6f) so cut transparency
+        // appears visually identical after JPEG flattening.
+        NSColor(calibratedRed: 31.0 / 255.0,
+                green: 107.0 / 255.0,
+                blue: 111.0 / 255.0,
+                alpha: 1.0).setFill()
+        NSRect(origin: .zero, size: size).fill()
+        image.draw(in: NSRect(origin: .zero, size: size),
+                   from: .zero,
+                   operation: .sourceOver,
+                   fraction: 1.0,
+                   respectFlipped: true,
+                   hints: nil)
+        flattened.unlockFocus()
+        return flattened
     }
 
     private func writeEncodedImageData(_ data: Data, to outputURL: URL, originalURL: URL) throws {

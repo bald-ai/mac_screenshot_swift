@@ -47,7 +47,14 @@ final class ClipboardService {
     func writeImage(_ image: NSImage) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.writeObjects([image])
+        if pasteboard.writeObjects([image]) {
+            return
+        }
+
+        // Fallback for targets that expect explicit TIFF data.
+        if let tiffData = image.tiffRepresentation {
+            pasteboard.setData(tiffData, forType: .tiff)
+        }
     }
 
     /// Copies a file to the pasteboard.

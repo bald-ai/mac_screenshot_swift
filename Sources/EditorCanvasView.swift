@@ -9,6 +9,7 @@ enum EditorTool: Hashable {
     case rectangle
     case ellipse
     case text
+    case selection
 }
 
 /// Main drawing canvas used by the screenshot editor.
@@ -45,6 +46,8 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         case colorPickerSelect
         case colorPickerClose
         case copyToClipboard
+        case cutSelectionToClipboard
+        case pasteSelectionInCanvas
     }
 
     /// Type used by EditorWindowController when switching tools.
@@ -69,6 +72,8 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         case rect(rect: NSRect, color: NSColor, lineWidth: CGFloat)
         case ellipse(rect: NSRect, color: NSColor, lineWidth: CGFloat)
         case text(TextItem)
+        case image(image: NSImage, rect: NSRect)
+        case erase(rect: NSRect)
     }
 
     private struct TextItem {
@@ -81,6 +86,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     private var items: [Item] = []
     private var undoStack: [[Item]] = []
     private let maxUndoLevels = 30
+    private let annotationStrokeWidth: CGFloat = 4.0
 
     // In-progress drawing state
     private var currentPoints: [NSPoint] = [] // for pen
@@ -100,6 +106,23 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     private var isCancellingText = false
     private let textPadding = NSSize(width: 6, height: 4)
 
+    // Rectangle selection state.
+    private var selectionRect: NSRect?
+    private var selectionDragStart: NSPoint?
+    private var selectionDragCurrent: NSPoint?
+    private var isCutSelectionPreview = false
+
+    // In-canvas pasted-image state for quick repositioning workflow.
+    private var selectedImageIndex: Int?
+    private var draggingImageIndex: Int?
+    private var imageDragOffset: NSPoint = .zero
+    private var didPushUndoForImageDrag = false
+    private var copiedSelectionImage: NSImage?
+    private var copiedSelectionRect: NSRect?
+    private var pasteCascadeCount = 0
+    private var lastMousePoint: NSPoint?
+    private var trackingArea: NSTrackingArea?
+
     // MARK: - Init
 
     init(image: NSImage, escapeFinalAction: FinalActionCommand = .deleteOnly) {
@@ -117,6 +140,24 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     override var acceptsFirstResponder: Bool { true }
     override var isOpaque: Bool { false }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let trackingArea {
+            removeTrackingArea(trackingArea)
+        }
+        let area = NSTrackingArea(rect: bounds,
+                                  options: [.activeInKeyWindow, .mouseMoved, .inVisibleRect],
+                                  owner: self,
+                                  userInfo: nil)
+        addTrackingArea(area)
+        trackingArea = area
+    }
+
     // MARK: - Public API (Agent 3 spec)
 
     func setTool(_ tool: EditorTool) {
@@ -124,6 +165,13 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         if tool != .text {
             selectedTextIndex = nil
             endTextEditingIfNeeded()
+        }
+        if tool != .selection {
+            selectionDragStart = nil
+            selectionDragCurrent = nil
+            selectedImageIndex = nil
+            draggingImageIndex = nil
+            didPushUndoForImageDrag = false
         }
         needsDisplay = true
     }
@@ -137,6 +185,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         items = previous
         updateCanvasSizeIfNeeded()
         selectedTextIndex = nil
+        selectedImageIndex = nil
+        draggingImageIndex = nil
+        didPushUndoForImageDrag = false
+        clearSelectionState()
         needsDisplay = true
     }
 
@@ -147,10 +199,17 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     /// Kept for compatibility with EditorWindowController.
     func clearAll() {
-        guard !items.isEmpty else { return }
+        if items.isEmpty {
+            _ = clearSelectionIfNeeded()
+            return
+        }
         pushUndoSnapshot()
         items.removeAll()
         selectedTextIndex = nil
+        selectedImageIndex = nil
+        draggingImageIndex = nil
+        didPushUndoForImageDrag = false
+        clearSelectionState()
         endTextEditingIfNeeded()
         setFrameSize(baseImage.size)
         needsDisplay = true
@@ -193,6 +252,88 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         return result
     }
 
+    /// Renders the currently selected region from the composited image.
+    func renderSelectedRegionImage() -> NSImage? {
+        guard let rect = clampedSelectionRect else { return nil }
+        let source = compositeImage()
+        let outputSize = rect.size
+        let output = NSImage(size: outputSize)
+        output.lockFocusFlipped(true)
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: outputSize).fill()
+
+        // Draw full source image shifted so the selected area lands at (0,0)
+        // in the output image. This keeps us in one flipped coordinate space.
+        let destination = NSRect(x: -rect.origin.x,
+                                 y: -rect.origin.y,
+                                 width: source.size.width,
+                                 height: source.size.height)
+        source.draw(in: destination,
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 1.0,
+                    respectFlipped: true,
+                    hints: nil)
+        output.unlockFocus()
+        return output
+    }
+
+    func selectedRegionPayload() -> (image: NSImage, rect: NSRect)? {
+        guard let rect = clampedSelectionRect,
+              let image = renderSelectedRegionImage() else {
+            return nil
+        }
+        copiedSelectionImage = image
+        copiedSelectionRect = rect
+        pasteCascadeCount = 0
+        return (image, rect)
+    }
+
+    @discardableResult
+    func cutSelectedRegion() -> Bool {
+        guard let rect = clampedSelectionRect else { return false }
+        pushUndoSnapshot()
+        items.append(.erase(rect: rect))
+        selectionRect = rect
+        selectionDragStart = nil
+        selectionDragCurrent = nil
+        isCutSelectionPreview = true
+        updateCanvasSizeIfNeeded()
+        needsDisplay = true
+        return true
+    }
+
+    @discardableResult
+    func pasteCopiedSelection() -> Bool {
+        guard let image = copiedSelectionImage,
+              let sourceRect = copiedSelectionRect else {
+            return false
+        }
+        let targetRect: NSRect
+        if let mousePoint = lastMousePoint {
+            let centeredOrigin = NSPoint(x: mousePoint.x - sourceRect.width / 2,
+                                         y: mousePoint.y - sourceRect.height / 2)
+            let proposed = NSRect(origin: centeredOrigin, size: sourceRect.size)
+            targetRect = clampedRectToImageBounds(proposed) ?? sourceRect
+        } else {
+            let offset = CGFloat(12 * pasteCascadeCount)
+            targetRect = sourceRect.offsetBy(dx: offset, dy: offset)
+        }
+        pushUndoSnapshot()
+        items.append(.image(image: image, rect: targetRect))
+        selectedImageIndex = items.count - 1
+        draggingImageIndex = nil
+        didPushUndoForImageDrag = false
+        selectionRect = nil
+        selectionDragStart = nil
+        selectionDragCurrent = nil
+        isCutSelectionPreview = false
+        pasteCascadeCount += 1
+        updateCanvasSizeIfNeeded()
+        needsDisplay = true
+        return true
+    }
+
     // MARK: - Drawing
 
     override func draw(_ dirtyRect: NSRect) {
@@ -203,6 +344,14 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
         for item in items {
             draw(item: item)
+        }
+
+        if let selectionRect {
+            drawSelectionOutline(selectionRect)
+        }
+
+        if let selectedImageIndex, case let .image(_, rect) = items[selectedImageIndex] {
+            drawImageSelectionOutline(rect)
         }
 
         if let index = selectedTextIndex, textEditor == nil {
@@ -221,21 +370,43 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         if let start = dragStartPoint, let current = dragCurrentPoint {
             switch currentTool {
             case .pen:
-                drawPen(points: currentPoints, color: currentColor, lineWidth: 2.0, isPreview: true)
+                drawPen(points: currentPoints, color: currentColor, lineWidth: annotationStrokeWidth, isPreview: true)
             case .arrow:
-                drawArrow(from: start, to: current, color: currentColor, lineWidth: 3.0, isPreview: true)
+                drawArrow(from: start, to: current, color: currentColor, lineWidth: annotationStrokeWidth, isPreview: true)
             case .rectangle:
                 let rect = normalizedRect(from: start, to: current)
-                drawRect(rect, color: currentColor, lineWidth: 2.0, isPreview: true)
+                drawRect(rect, color: currentColor, lineWidth: annotationStrokeWidth, isPreview: true)
             case .ellipse:
                 let rect = normalizedRect(from: start, to: current)
-                drawEllipse(rect, color: currentColor, lineWidth: 2.0, isPreview: true)
+                drawEllipse(rect, color: currentColor, lineWidth: annotationStrokeWidth, isPreview: true)
             case .text:
                 break
+            case .selection:
+                break
             }
+        } else if let start = selectionDragStart, let current = selectionDragCurrent {
+            let rect = normalizedRect(from: start, to: current)
+            drawSelectionOutline(rect)
         } else if currentTool == .pen && !currentPoints.isEmpty {
-            drawPen(points: currentPoints, color: currentColor, lineWidth: 2.0, isPreview: true)
+            drawPen(points: currentPoints, color: currentColor, lineWidth: annotationStrokeWidth, isPreview: true)
         }
+    }
+
+    private func drawSelectionOutline(_ rect: NSRect) {
+        guard rect.width >= 1, rect.height >= 1 else { return }
+        if isCutSelectionPreview {
+            NSColor.white.withAlphaComponent(0.16).setFill()
+            rect.fill()
+        }
+        let path = NSBezierPath(rect: rect)
+        let dash: [CGFloat] = [6, 4]
+        path.setLineDash(dash, count: dash.count, phase: 0)
+        let strokeColor = isCutSelectionPreview
+            ? NSColor.systemOrange.withAlphaComponent(0.95)
+            : NSColor.white.withAlphaComponent(0.92)
+        strokeColor.setStroke()
+        path.lineWidth = 2
+        path.stroke()
     }
 
     private func draw(item: Item) {
@@ -250,7 +421,34 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             drawEllipse(rect, color: color, lineWidth: lineWidth, isPreview: false)
         case .text(let item):
             drawText(item)
+        case .image(let image, let rect):
+            drawImage(image, in: rect)
+        case .erase(let rect):
+            drawErase(rect)
         }
+    }
+
+    private func drawImage(_ image: NSImage, in rect: NSRect) {
+        guard rect.width >= 1, rect.height >= 1 else { return }
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
+    }
+
+    private func drawImageSelectionOutline(_ rect: NSRect) {
+        let outlineRect = rect.insetBy(dx: -2, dy: -2)
+        guard outlineRect.width >= 1, outlineRect.height >= 1 else { return }
+        let path = NSBezierPath(rect: outlineRect)
+        let dash: [CGFloat] = [5, 3]
+        path.setLineDash(dash, count: dash.count, phase: 0)
+        NSColor.systemOrange.withAlphaComponent(0.95).setStroke()
+        path.lineWidth = 2
+        path.stroke()
+    }
+
+    private func drawErase(_ rect: NSRect) {
+        guard rect.width >= 1, rect.height >= 1 else { return }
+        // destinationOut uses source alpha; use an opaque source to actually clear.
+        NSColor.black.setFill()
+        rect.fill(using: .destinationOut)
     }
 
     private func drawPen(points: [NSPoint], color: NSColor, lineWidth: CGFloat, isPreview: Bool) {
@@ -360,6 +558,53 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     // MARK: - Geometry helpers
 
+    private var baseImageBounds: NSRect {
+        NSRect(origin: .zero, size: baseImage.size)
+    }
+
+    private var clampedSelectionRect: NSRect? {
+        guard let selectionRect else { return nil }
+        let clipped = selectionRect.intersection(baseImageBounds)
+        guard !clipped.isNull, clipped.width > 0, clipped.height > 0 else { return nil }
+
+        let minX = max(baseImageBounds.minX, floor(clipped.minX))
+        let minY = max(baseImageBounds.minY, floor(clipped.minY))
+        let maxX = min(baseImageBounds.maxX, ceil(clipped.maxX))
+        let maxY = min(baseImageBounds.maxY, ceil(clipped.maxY))
+        guard maxX > minX, maxY > minY else { return nil }
+
+        return NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    private func clearSelectionState() {
+        selectionRect = nil
+        selectionDragStart = nil
+        selectionDragCurrent = nil
+        isCutSelectionPreview = false
+    }
+
+    private func clearSelectionIfNeeded() -> Bool {
+        guard selectionRect != nil else { return false }
+        clearSelectionState()
+        needsDisplay = true
+        return true
+    }
+
+    private func clampedRectToImageBounds(_ rect: NSRect) -> NSRect? {
+        let size = rect.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        guard size.width <= baseImageBounds.width, size.height <= baseImageBounds.height else { return nil }
+
+        let minX = baseImageBounds.minX
+        let minY = baseImageBounds.minY
+        let maxX = baseImageBounds.maxX - size.width
+        let maxY = baseImageBounds.maxY - size.height
+
+        let clampedX = min(max(rect.origin.x, minX), maxX)
+        let clampedY = min(max(rect.origin.y, minY), maxY)
+        return NSRect(x: clampedX, y: clampedY, width: size.width, height: size.height)
+    }
+
     private func normalizedRect(from p1: NSPoint, to p2: NSPoint) -> NSRect {
         let minX = min(p1.x, p2.x)
         let maxX = max(p1.x, p2.x)
@@ -414,6 +659,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
             case .text(let textItem):
                 unionRect = unionRect.union(textBounds(for: textItem))
+            case .image(_, let rect):
+                unionRect = unionRect.union(rect)
+            case .erase:
+                break
             }
         }
 
@@ -431,6 +680,32 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        lastMousePoint = point
+
+        if currentTool == .selection {
+            selectedTextIndex = nil
+            endTextEditingIfNeeded()
+            if let (index, rect) = hitTestImage(at: point) {
+                selectedImageIndex = index
+                draggingImageIndex = index
+                imageDragOffset = NSPoint(x: point.x - rect.origin.x, y: point.y - rect.origin.y)
+                didPushUndoForImageDrag = false
+                selectionRect = nil
+                selectionDragStart = nil
+                selectionDragCurrent = nil
+                isCutSelectionPreview = false
+                needsDisplay = true
+                return
+            }
+            selectedImageIndex = nil
+            draggingImageIndex = nil
+            selectionRect = nil
+            selectionDragStart = point
+            selectionDragCurrent = point
+            isCutSelectionPreview = false
+            needsDisplay = true
+            return
+        }
 
         if currentTool == .text {
             let clickCount = event.clickCount
@@ -480,6 +755,27 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        lastMousePoint = point
+
+        if currentTool == .selection {
+            if let index = draggingImageIndex {
+                if !didPushUndoForImageDrag {
+                    pushUndoSnapshot()
+                    didPushUndoForImageDrag = true
+                }
+                if case let .image(image, oldRect) = items[index] {
+                    let newOrigin = NSPoint(x: point.x - imageDragOffset.x, y: point.y - imageDragOffset.y)
+                    let newRect = NSRect(origin: newOrigin, size: oldRect.size)
+                    items[index] = .image(image: image, rect: newRect)
+                    needsDisplay = true
+                }
+                return
+            }
+            guard selectionDragStart != nil else { return }
+            selectionDragCurrent = point
+            needsDisplay = true
+            return
+        }
 
         if let index = draggingTextIndex {
             if case var .text(item) = items[index] {
@@ -504,6 +800,31 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     override func mouseUp(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        lastMousePoint = point
+
+        if currentTool == .selection {
+            if draggingImageIndex != nil {
+                draggingImageIndex = nil
+                didPushUndoForImageDrag = false
+                updateCanvasSizeIfNeeded()
+                needsDisplay = true
+                return
+            }
+            guard let start = selectionDragStart else { return }
+            selectionDragCurrent = point
+            let rect = normalizedRect(from: start, to: point)
+            selectionDragStart = nil
+            selectionDragCurrent = nil
+            selectionRect = rect.width >= 2 && rect.height >= 2 ? rect : nil
+            if let clampedRect = clampedSelectionRect {
+                selectionRect = clampedRect
+            } else {
+                selectionRect = nil
+            }
+            isCutSelectionPreview = false
+            needsDisplay = true
+            return
+        }
 
         if draggingTextIndex != nil {
             draggingTextIndex = nil
@@ -519,30 +840,32 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         case .pen:
             if currentPoints.count > 1 {
                 pushUndoSnapshot()
-                items.append(.pen(points: currentPoints, color: currentColor, lineWidth: 2.0))
+                items.append(.pen(points: currentPoints, color: currentColor, lineWidth: annotationStrokeWidth))
                 updateCanvasSizeIfNeeded()
             }
         case .arrow:
             if distance(from: start, to: point) >= 2 {
                 pushUndoSnapshot()
-                items.append(.arrow(start: start, end: point, color: currentColor, lineWidth: 3.0))
+                items.append(.arrow(start: start, end: point, color: currentColor, lineWidth: annotationStrokeWidth))
                 updateCanvasSizeIfNeeded()
             }
         case .rectangle:
             let rect = normalizedRect(from: start, to: point)
             if rect.width >= 2, rect.height >= 2 {
                 pushUndoSnapshot()
-                items.append(.rect(rect: rect, color: currentColor, lineWidth: 2.0))
+                items.append(.rect(rect: rect, color: currentColor, lineWidth: annotationStrokeWidth))
                 updateCanvasSizeIfNeeded()
             }
         case .ellipse:
             let rect = normalizedRect(from: start, to: point)
             if rect.width >= 2, rect.height >= 2 {
                 pushUndoSnapshot()
-                items.append(.ellipse(rect: rect, color: currentColor, lineWidth: 2.0))
+                items.append(.ellipse(rect: rect, color: currentColor, lineWidth: annotationStrokeWidth))
                 updateCanvasSizeIfNeeded()
             }
         case .text:
+            break
+        case .selection:
             break
         }
 
@@ -559,6 +882,16 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             guard case let .text(textItem) = item else { continue }
             let rect = textBounds(for: textItem).insetBy(dx: -4, dy: -4)
             if rect.contains(point) {
+                return (index, rect)
+            }
+        }
+        return nil
+    }
+
+    private func hitTestImage(at point: NSPoint) -> (Int, NSRect)? {
+        for index in items.indices.reversed() {
+            guard case let .image(_, rect) = items[index] else { continue }
+            if rect.insetBy(dx: -3, dy: -3).contains(point) {
                 return (index, rect)
             }
         }
@@ -717,6 +1050,19 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         return true
     }
 
+    private func deleteSelectedImageIfNeeded() -> Bool {
+        guard let index = selectedImageIndex else { return false }
+        guard case .image = items[index] else { return false }
+        pushUndoSnapshot()
+        items.remove(at: index)
+        selectedImageIndex = nil
+        draggingImageIndex = nil
+        didPushUndoForImageDrag = false
+        updateCanvasSizeIfNeeded()
+        needsDisplay = true
+        return true
+    }
+
     // MARK: - Keyboard & gestures
 
     override func keyDown(with event: NSEvent) {
@@ -779,6 +1125,9 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                 case "t":
                     onKeyCommand?(.selectTool(.text))
                     return
+                case "s":
+                    onKeyCommand?(.selectTool(.selection))
+                    return
                 default:
                     break
                 }
@@ -807,9 +1156,19 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             case "c":
                 onKeyCommand?(.copyToClipboard)
                 return
+            case "x":
+                onKeyCommand?(.cutSelectionToClipboard)
+                return
+            case "v":
+                onKeyCommand?(.pasteSelectionInCanvas)
+                return
             default:
                 break
             }
+        }
+
+        if event.keyCode == 53, clearSelectionIfNeeded() {
+            return
         }
 
         if let final = interpretFinalActionCommand(from: event, flags: flags) {
@@ -822,11 +1181,55 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             return
         }
 
-        if (event.keyCode == 51 || event.keyCode == 117) && deleteSelectedTextIfNeeded() {
-            return
+        if event.keyCode == 51 || event.keyCode == 117 {
+            if deleteSelectedImageIfNeeded() { return }
+            if deleteSelectedTextIfNeeded() { return }
         }
 
         super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Cmd-based key equivalents can be intercepted by the window/menu before keyDown.
+        // Handle copy/cut here so shortcuts work reliably in the canvas.
+        if textEditor != nil {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == [.command],
+              let chars = event.charactersIgnoringModifiers?.lowercased() else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        switch chars {
+        case "c":
+            onKeyCommand?(.copyToClipboard)
+            return true
+        case "x":
+            onKeyCommand?(.cutSelectionToClipboard)
+            return true
+        case "v":
+            onKeyCommand?(.pasteSelectionInCanvas)
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
+    }
+
+    @objc func copy(_ sender: Any?) {
+        guard textEditor == nil else { return }
+        onKeyCommand?(.copyToClipboard)
+    }
+
+    @objc func cut(_ sender: Any?) {
+        guard textEditor == nil else { return }
+        onKeyCommand?(.cutSelectionToClipboard)
+    }
+
+    @objc func paste(_ sender: Any?) {
+        guard textEditor == nil else { return }
+        onKeyCommand?(.pasteSelectionInCanvas)
     }
 
     override func magnify(with event: NSEvent) {
@@ -837,6 +1240,11 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         } else if event.magnification < 0 {
             onKeyCommand?(.zoomOut)
         }
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        lastMousePoint = convert(event.locationInWindow, from: nil)
+        super.mouseMoved(with: event)
     }
 
     private func interpretFinalActionCommand(from event: NSEvent, flags: NSEvent.ModifierFlags) -> FinalActionCommand? {
