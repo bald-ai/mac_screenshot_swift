@@ -44,6 +44,7 @@ final class TrayService {
 
     private func makeMenu() -> NSMenu {
         let menu = NSMenu()
+        AppTheme.apply(to: menu)
 
         menu.addItem(NSMenuItem(title: "Settings", action: #selector(didSelectSettings), keyEquivalent: ""))
 

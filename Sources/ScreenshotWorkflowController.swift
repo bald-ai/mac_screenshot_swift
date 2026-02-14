@@ -26,6 +26,7 @@ final class ScreenshotWorkflowController {
     private var editorController: EditorWindowController?
 
     private var pendingNoteText: String = ""
+    private var pendingEditedImage: NSImage?
     private var burnedNoteText: String = ""
     private var hasCreatedBackup = false
     private var backupOriginalURL: URL?
@@ -64,10 +65,11 @@ final class ScreenshotWorkflowController {
         // Close any open panels
         renameController?.close()
         noteController?.close()
-        editorController?.close()
+        editorController?.dismissWithoutCompletion()
         renameController = nil
         noteController = nil
         editorController = nil
+        pendingEditedImage = nil
     }
 
     // MARK: - Panels
@@ -264,10 +266,25 @@ final class ScreenshotWorkflowController {
         noteController?.close()
         noteController = nil
 
-        guard let editor = EditorWindowController(imageURL: fileURL,
-                                                  settingsStore: settingsStore,
-                                                  notePreview: text,
-                                                  escapeKeyDeletesFile: escapeKeyDeletesFile) else {
+        if let existing = editorController {
+            existing.show()
+            return
+        }
+
+        let editor: EditorWindowController?
+        if let pendingEditedImage {
+            editor = EditorWindowController(image: pendingEditedImage,
+                                            settingsStore: settingsStore,
+                                            notePreview: text,
+                                            escapeKeyDeletesFile: escapeKeyDeletesFile)
+        } else {
+            editor = EditorWindowController(imageURL: fileURL,
+                                            settingsStore: settingsStore,
+                                            notePreview: text,
+                                            escapeKeyDeletesFile: escapeKeyDeletesFile)
+        }
+
+        guard let editor else {
             // If the editor fails to load, fall back to a regular save.
             complete(action: .saveOnly, note: nil)
             return
@@ -276,24 +293,22 @@ final class ScreenshotWorkflowController {
         editor.onComplete = { [weak self] image, action in
             self?.handleEditorCompletion(editedImage: image, action: action)
         }
-        editor.onBackToNote = { [weak self] image in
-            self?.returnToNoteFromEditor(editedImage: image)
+        editor.onBackToNote = { [weak self] in
+            self?.returnToNoteFromEditor()
         }
 
         editorController = editor
         editor.show()
     }
 
-    private func returnToNoteFromEditor(editedImage: NSImage) {
-        editorController?.close()
-        editorController = nil
-        saveEditedImage(editedImage)
+    private func returnToNoteFromEditor() {
         presentNotePanel(existingText: pendingNoteText)
     }
 
     private func handleEditorCompletion(editedImage: NSImage?, action: FinalAction) {
-        editorController?.close()
+        editorController?.dismissWithoutCompletion()
         editorController = nil
+        pendingEditedImage = nil
 
         if let image = editedImage {
             // Editor returns a flattened image. If there's a pending note, burn it once
@@ -311,7 +326,7 @@ final class ScreenshotWorkflowController {
             switch action {
             case .saveOnly, .copyAndSave:
                 // Save the final (possibly noted) image to disk.
-                saveEditedImage(finalImage)
+                guard saveEditedImage(finalImage) else { return }
                 // Workflow finished normally: remove backup if one was created.
                 removeBackupIfNeeded()
             case .copyAndDelete, .deleteOnly:
@@ -357,19 +372,21 @@ final class ScreenshotWorkflowController {
         onFinish?()
     }
 
-    private func saveEditedImage(_ image: NSImage) {
+    private func saveEditedImage(_ image: NSImage) -> Bool {
         ensureBackupExists()
 
         let quality = settingsStore.settings.quality
         guard let (data, outputURL) = encodedImageData(from: image, originalURL: fileURL, quality: quality) else {
             presentError(title: "Failed to encode image", message: "Could not encode the edited image.")
-            return
+            return false
         }
 
         do {
             try writeEncodedImageData(data, to: outputURL, originalURL: fileURL)
+            return true
         } catch {
             presentError(title: "Failed to write image", message: error.localizedDescription)
+            return false
         }
     }
 
@@ -390,14 +407,63 @@ final class ScreenshotWorkflowController {
     // MARK: - Completion
 
     private func complete(action: FinalAction, note: String?) {
-        if let note = note {
-            guard applyNoteIfNeeded(note) else { return }
-        }
-
         renameController?.close()
         noteController?.close()
         renameController = nil
         noteController = nil
+
+        let pendingImage: NSImage? = {
+            if let editor = editorController {
+                let image = editor.currentCompositeImage()
+                editor.dismissWithoutCompletion()
+                editorController = nil
+                return image
+            }
+            return pendingEditedImage
+        }()
+
+        if let pendingImage {
+            var finalImage = pendingImage
+            let trimmedNote = (note ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedNote.isEmpty {
+                guard let noted = notedImage(base: finalImage, rawNote: trimmedNote) else {
+                    presentError(title: "Failed to apply note", message: "Could not render the note text.")
+                    return
+                }
+                finalImage = noted
+                burnedNoteText = String(trimmedNote.prefix(1000))
+            } else {
+                burnedNoteText = ""
+            }
+
+            switch action {
+            case .saveOnly:
+                guard saveEditedImage(finalImage) else { return }
+                removeBackupIfNeeded()
+            case .copyAndSave:
+                guard saveEditedImage(finalImage) else { return }
+                clipboardService.copyFile(at: fileURL, useCache: false)
+                removeBackupIfNeeded()
+            case .copyAndDelete:
+                guard saveEditedImage(finalImage) else { return }
+                clipboardService.copyFile(at: fileURL, useCache: true)
+                deleteFileAndBackup()
+            case .deleteOnly:
+                deleteFileAndBackup()
+            case .closeOnly:
+                closeWorkflowWithoutDeleting()
+                return
+            }
+
+            pendingEditedImage = nil
+            burnedNoteText = ""
+            onFinish?()
+            return
+        }
+
+        if let note = note {
+            guard applyNoteIfNeeded(note) else { return }
+        }
 
         switch action {
         case .saveOnly:
@@ -527,10 +593,11 @@ final class ScreenshotWorkflowController {
 
         renameController?.close()
         noteController?.close()
-        editorController?.close()
+        editorController?.dismissWithoutCompletion()
         renameController = nil
         noteController = nil
         editorController = nil
+        pendingEditedImage = nil
         burnedNoteText = ""
         onFinish?()
     }
@@ -750,12 +817,8 @@ final class ScreenshotWorkflowController {
         let size = image.size
         let flattened = NSImage(size: size)
         flattened.lockFocusFlipped(true)
-        // Match editor canvas background color (#1f6b6f) so cut transparency
-        // appears visually identical after JPEG flattening.
-        NSColor(calibratedRed: 31.0 / 255.0,
-                green: 107.0 / 255.0,
-                blue: 111.0 / 255.0,
-                alpha: 1.0).setFill()
+        // JPEG can't keep transparency. Use a neutral non-themed background color.
+        NSColor(calibratedWhite: 0.96, alpha: 1.0).setFill()
         NSRect(origin: .zero, size: size).fill()
         image.draw(in: NSRect(origin: .zero, size: size),
                    from: .zero,
@@ -818,7 +881,8 @@ final class FloatingInputPanel: NSPanel {
         isOpaque = false
         backgroundColor = NSColor.clear
         hasShadow = true
-        
+        AppTheme.apply(to: self)
+
         // Ensure window is properly initialized
         self.isReleasedWhenClosed = false
         

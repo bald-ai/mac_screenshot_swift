@@ -17,7 +17,7 @@ final class EditorWindowController: NSWindowController {
     ///   - image: The final composited image, or `nil` for delete-only.
     ///   - action: The requested final action.
     var onComplete: ((NSImage?, FinalAction) -> Void)?
-    var onBackToNote: ((NSImage) -> Void)?
+    var onBackToNote: (() -> Void)?
 
     private let canvasView: EditorCanvasView
     private let scrollView = EditorScrollView()
@@ -38,10 +38,6 @@ final class EditorWindowController: NSWindowController {
 
     private let colorIndicatorButton = NSButton(frame: .zero)
     private let zoomLabel = NSTextField(labelWithString: "100%")
-
-    // Single base color used for both toolbar and window background.
-    // This avoids the "random black" / mismatched canvas look.
-    fileprivate static let editorBaseColor = NSColor(hex: "#1f6b6f")
 
     private let colors: [NSColor] = [
         NSColor(hex: "#ff3b30"),
@@ -114,15 +110,19 @@ final class EditorWindowController: NSWindowController {
 	        // Provisional size. We'll resize to match the image (native-like) after building UI.
 	        let contentRect = NSRect(x: 0, y: 0, width: 720, height: 520)
 
-        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable]
+        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         let window = NSWindow(contentRect: contentRect,
                               styleMask: style,
                               backing: .buffered,
                               defer: false)
         window.title = "Edit Screenshot"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = false
         // Size is dynamic; do not autosave window frame.
         window.contentMinSize = NSSize(width: 580, height: 250)
-        window.backgroundColor = Self.editorBaseColor
+        window.backgroundColor = .clear
+        AppTheme.apply(to: window)
 
         super.init(window: window)
 
@@ -148,27 +148,35 @@ final class EditorWindowController: NSWindowController {
         updateScrollLockAndRecentering()
     }
 
+    func currentCompositeImage() -> NSImage {
+        canvasView.compositeImage()
+    }
+
+    func dismissWithoutCompletion() {
+        didSendCompletion = true
+        close()
+    }
+
     // MARK: - UI setup
 
     private func configureContent() {
         guard let contentView = window?.contentView else { return }
 
-        let backgroundView = EditorBackgroundView(frame: contentView.bounds)
-        backgroundView.autoresizingMask = [.width, .height]
-        contentView.addSubview(backgroundView, positioned: .below, relativeTo: nil)
+        let surfaceView = MenuSurfaceMaterial.makeFillingView(frame: contentView.bounds)
+        contentView.addSubview(surfaceView)
 
         let rootStack = NSStackView()
         rootStack.orientation = .vertical
         rootStack.spacing = 10
         rootStack.alignment = .centerX
         rootStack.translatesAutoresizingMaskIntoConstraints = false
-        contentView.addSubview(rootStack)
+        surfaceView.addSubview(rootStack)
 
         NSLayoutConstraint.activate([
-            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            rootStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            rootStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
-            rootStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -12)
+            rootStack.topAnchor.constraint(equalTo: surfaceView.safeAreaLayoutGuide.topAnchor, constant: 8),
+            rootStack.leadingAnchor.constraint(equalTo: surfaceView.leadingAnchor, constant: 12),
+            rootStack.trailingAnchor.constraint(equalTo: surfaceView.trailingAnchor, constant: -12),
+            rootStack.bottomAnchor.constraint(equalTo: surfaceView.safeAreaLayoutGuide.bottomAnchor, constant: -12)
         ])
 
         let toolbarBackground = makeToolbarBackground()
@@ -191,9 +199,7 @@ final class EditorWindowController: NSWindowController {
         rootStack.addArrangedSubview(toolbarBackground)
 
         scrollView.borderType = .noBorder
-        // Force the canvas background to match the toolbar/window color (no black bleed-through).
-        scrollView.drawsBackground = true
-        scrollView.backgroundColor = Self.editorBaseColor
+        scrollView.drawsBackground = false
         // Native screenshot/markup windows do not show scrollers; panning still works
         // with trackpad/mouse when zoomed.
         scrollView.hasVerticalScroller = false
@@ -202,17 +208,16 @@ final class EditorWindowController: NSWindowController {
         scrollView.allowsMagnification = true
         scrollView.minMagnification = minEffectiveZoom
         scrollView.maxMagnification = maxEffectiveZoom
-        scrollView.contentView = CenteringClipView()
-        scrollView.contentView.drawsBackground = true
-        scrollView.contentView.backgroundColor = Self.editorBaseColor
+        let centeringClipView = CenteringClipView()
+        scrollView.contentView = centeringClipView
+        scrollView.contentView.drawsBackground = false
         scrollView.documentView = canvasView
         scrollView.magnification = 1.0
         scrollView.shouldAllowScroll = { [weak self] in
             return self?.isContentScrollable ?? true
         }
-
-        rootStack.addArrangedSubview(scrollView)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        rootStack.addArrangedSubview(scrollView)
         scrollView.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
         // Allow the window to open small for small screenshots (native behavior).
         scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120).isActive = true
@@ -251,15 +256,10 @@ final class EditorWindowController: NSWindowController {
         }
 
         let container = NSView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.96).cgColor
-        container.layer?.cornerRadius = 8
-        container.layer?.borderWidth = 1
-        container.layer?.borderColor = NSColor.black.withAlphaComponent(0.10).cgColor
 
         let label = NSTextField(wrappingLabelWithString: text)
         label.font = NSFont.systemFont(ofSize: 13, weight: .regular)
-        label.textColor = NSColor.black
+        label.textColor = NSColor.labelColor
         label.lineBreakMode = .byWordWrapping
         label.maximumNumberOfLines = 0
         label.translatesAutoresizingMaskIntoConstraints = false
@@ -276,18 +276,11 @@ final class EditorWindowController: NSWindowController {
     }
 
     private func makeToolbarBackground() -> NSView {
-        // Use a simple layer-backed view so the toolbar color matches the window background.
         let background = NSView()
-        background.wantsLayer = true
-        background.layer?.backgroundColor = Self.editorBaseColor.withAlphaComponent(0.92).cgColor
-        background.layer?.cornerRadius = 10
-        background.layer?.borderWidth = 1
-        background.layer?.borderColor = NSColor.white.withAlphaComponent(0.10).cgColor
-        background.layer?.shadowColor = NSColor.black.cgColor
-        background.layer?.shadowOpacity = 0.22
-        background.layer?.shadowRadius = 8
-        background.layer?.shadowOffset = NSSize(width: 0, height: -1)
         background.translatesAutoresizingMaskIntoConstraints = false
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 10
+        background.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
         return background
     }
 
@@ -300,13 +293,13 @@ final class EditorWindowController: NSWindowController {
 
         let penButton = makeToolButton(symbol: "pencil", tool: .pen, toolTip: "Pen (W)")
         let arrowButton = makeToolButton(symbol: "arrow.right", tool: .arrow, toolTip: "Arrow (A)")
-        let rectButton = makeToolButton(symbol: "square", tool: .rectangle, toolTip: "Rectangle (R)")
-        let ovalButton = makeToolButton(symbol: "circle", tool: .ellipse, toolTip: "Ellipse (E)")
+        let rectButton = makeToolButton(symbol: "square", tool: .rectangle, toolTip: "Rectangle (R, Hold ⇧: Square)")
+        let ovalButton = makeToolButton(symbol: "circle", tool: .ellipse, toolTip: "Ellipse (E, Hold ⇧: Circle)")
         let textButton = makeToolButton(symbol: "textformat", tool: .text, toolTip: "Text (T)")
         let selectionButton = makeToolButton(symbol: "rectangle.dashed", tool: .selection, toolTip: "Selection (S)")
 
         let undoButton = makeActionButton(symbol: "arrow.uturn.left", toolTip: "Undo (Cmd+Z)", action: #selector(undoPressed))
-        let clearButton = makeActionButton(symbol: "trash", toolTip: "Clear (Option+Backspace)", action: #selector(clearPressed))
+        let clearButton = makeActionButton(symbol: "eraser", toolTip: "Clear (Option+Backspace)", action: #selector(clearPressed))
 
         let zoomOutButton = makeActionButton(symbol: "minus.magnifyingglass", toolTip: "Zoom Out (Cmd+-)", action: #selector(zoomOutPressed))
         let zoomInButton = makeActionButton(symbol: "plus.magnifyingglass", toolTip: "Zoom In (Cmd++)", action: #selector(zoomInPressed))
@@ -324,26 +317,53 @@ final class EditorWindowController: NSWindowController {
         zoomLabel.translatesAutoresizingMaskIntoConstraints = false
         zoomLabel.widthAnchor.constraint(equalToConstant: 40).isActive = true
 
-        [
-            penButton,
-            arrowButton,
-            rectButton,
-            ovalButton,
-            textButton,
-            selectionButton,
-            makeDivider(),
-            colorIndicatorButton,
-            makeDivider(),
-            undoButton,
-            clearButton,
-            makeDivider(),
-            zoomOutButton,
-            zoomLabel,
-            zoomInButton,
-            makeDivider(),
-            cancelButton,
-            saveButton
-        ].forEach { stack.addArrangedSubview($0) }
+        // Drawing tools - tight group
+        let drawingTools = NSStackView(views: [
+            penButton, arrowButton, rectButton, ovalButton,
+            textButton, selectionButton
+        ])
+        drawingTools.orientation = .horizontal
+        drawingTools.alignment = .centerY
+        drawingTools.spacing = 2
+
+        // Color indicator wrapped in a 32x32 container so it optically matches buttons
+        let colorContainer = NSView()
+        colorContainer.translatesAutoresizingMaskIntoConstraints = false
+        colorContainer.addSubview(colorIndicatorButton)
+        NSLayoutConstraint.activate([
+            colorContainer.widthAnchor.constraint(equalToConstant: 26),
+            colorContainer.heightAnchor.constraint(equalToConstant: 26),
+            colorIndicatorButton.centerXAnchor.constraint(equalTo: colorContainer.centerXAnchor),
+            colorIndicatorButton.centerYAnchor.constraint(equalTo: colorContainer.centerYAnchor),
+        ])
+
+        // Edit actions
+        let editActions = NSStackView(views: [undoButton, clearButton])
+        editActions.orientation = .horizontal
+        editActions.alignment = .centerY
+        editActions.spacing = 2
+
+        // Zoom controls
+        let zoomControls = NSStackView(views: [zoomOutButton, zoomLabel, zoomInButton])
+        zoomControls.orientation = .horizontal
+        zoomControls.alignment = .centerY
+        zoomControls.spacing = 0
+
+        // Session actions
+        let sessionActions = NSStackView(views: [cancelButton, saveButton])
+        sessionActions.orientation = .horizontal
+        sessionActions.alignment = .centerY
+        sessionActions.spacing = 2
+
+        [drawingTools, colorContainer, editActions, zoomControls, sessionActions]
+            .forEach { stack.addArrangedSubview($0) }
+
+        // Spacing between groups: tighter within left side, breathe between logical sections
+        stack.spacing = 12
+        stack.setCustomSpacing(6, after: drawingTools)
+        stack.setCustomSpacing(18, after: colorContainer)
+        stack.setCustomSpacing(12, after: editActions)
+        stack.setCustomSpacing(12, after: zoomControls)
 
         return stack
     }
@@ -377,8 +397,8 @@ final class EditorWindowController: NSWindowController {
         button.layer?.cornerRadius = 6
         button.layer?.backgroundColor = NSColor.clear.cgColor
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: 32).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
         return button
     }
 
@@ -397,20 +417,29 @@ final class EditorWindowController: NSWindowController {
         button.layer?.backgroundColor = NSColor.clear.cgColor
         button.toolTip = "Save (Enter)"
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: 32).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 26).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
         button.title = ""
         return button
     }
 
     private func makeDivider() -> NSView {
+        let container = NSView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.widthAnchor.constraint(equalToConstant: 1).isActive = true
+
         let divider = NSView()
         divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.2).cgColor
+        divider.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.9).cgColor
         divider.translatesAutoresizingMaskIntoConstraints = false
-        divider.widthAnchor.constraint(equalToConstant: 1).isActive = true
-        divider.heightAnchor.constraint(equalToConstant: 18).isActive = true
-        return divider
+        container.addSubview(divider)
+        NSLayoutConstraint.activate([
+            divider.widthAnchor.constraint(equalToConstant: 1),
+            divider.heightAnchor.constraint(equalToConstant: 18),
+            divider.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            divider.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+        ])
+        return container
     }
 
     private func configureColorIndicator() {
@@ -431,10 +460,12 @@ final class EditorWindowController: NSWindowController {
     }
 
     private func setupColorPicker() {
-        let container = NSView()
+        let container = NSVisualEffectView()
+        MenuSurfaceMaterial.apply(to: container)
         container.wantsLayer = true
         container.layer?.cornerRadius = 16
-        container.layer?.backgroundColor = NSColor(calibratedWhite: 0.22, alpha: 1.0).cgColor
+        container.layer?.borderWidth = 1
+        container.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.7).cgColor
 
         let stack = NSStackView()
         stack.orientation = .horizontal
@@ -527,7 +558,7 @@ final class EditorWindowController: NSWindowController {
         for (key, button) in toolButtons {
             let isActive = key == tool
             button.layer?.backgroundColor = isActive
-                ? NSColor(calibratedRed: 0.22, green: 0.43, blue: 0.85, alpha: 1.0).cgColor
+                ? NSColor.controlAccentColor.withAlphaComponent(0.92).cgColor
                 : NSColor.clear.cgColor
             button.contentTintColor = isActive ? .white : .labelColor
         }
@@ -554,7 +585,7 @@ final class EditorWindowController: NSWindowController {
         for (index, button) in colorPickerButtons.enumerated() {
             let isSelected = index == selectedColorIndex
             if isSelected {
-                button.layer?.borderColor = NSColor.white.withAlphaComponent(0.8).cgColor
+                button.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.95).cgColor
             } else {
                 button.layer?.borderColor = NSColor.clear.cgColor
             }
@@ -575,7 +606,7 @@ final class EditorWindowController: NSWindowController {
         updateColorFocus()
         colorPickerPopover.show(relativeTo: colorIndicatorButton.bounds, of: colorIndicatorButton, preferredEdge: .maxY)
         canvasView.isColorPickerOpen = true
-        colorIndicatorButton.layer?.borderColor = NSColor.white.withAlphaComponent(0.5).cgColor
+        colorIndicatorButton.layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.75).cgColor
         window?.makeFirstResponder(canvasView)
     }
 
@@ -588,10 +619,10 @@ final class EditorWindowController: NSWindowController {
     private func updateColorFocus() {
         for (index, button) in colorPickerButtons.enumerated() {
             if index == colorFocusIndex {
-                button.layer?.borderColor = NSColor.systemBlue.cgColor
+                button.layer?.borderColor = NSColor.controlAccentColor.cgColor
                 button.layer?.borderWidth = 2
             } else if index == selectedColorIndex {
-                button.layer?.borderColor = NSColor.white.withAlphaComponent(0.8).cgColor
+                button.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.95).cgColor
                 button.layer?.borderWidth = 2
             } else {
                 button.layer?.borderColor = NSColor.clear.cgColor
@@ -661,10 +692,9 @@ final class EditorWindowController: NSWindowController {
             selectColor(index: index)
             closeColorPicker()
         case .backToNote:
-            let image = canvasView.compositeImage()
-            didSendCompletion = true
-            onBackToNote?(image)
-            close()
+            closeColorPicker()
+            onBackToNote?()
+            window?.orderOut(nil)
         case .selectTool(let tool):
             selectTool(tool)
         case .toggleColorPicker:
@@ -826,7 +856,8 @@ final class EditorWindowController: NSWindowController {
         }
 
         if scrollableY {
-            origin.y = max(0, min(origin.y, docSize.height - clipSize.height))
+            let maxY = docSize.height - clipSize.height
+            origin.y = max(0, min(origin.y, maxY))
         } else {
             origin.y = floor((docSize.height - clipSize.height) / 2.0)
         }
@@ -904,24 +935,14 @@ private final class CenteringClipView: NSClipView {
         if docSize.width < clipSize.width {
             rect.origin.x = floor((docSize.width - clipSize.width) / 2.0)
         }
-        if docSize.height < clipSize.height {
+        if docSize.height <= clipSize.height {
             rect.origin.y = floor((docSize.height - clipSize.height) / 2.0)
+        } else {
+            let maxY = docSize.height - clipSize.height
+            rect.origin.y = max(0, min(rect.origin.y, maxY))
         }
 
         return rect
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        EditorWindowController.editorBaseColor.setFill()
-        bounds.fill()
-    }
-}
-
-private final class EditorBackgroundView: NSView {
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        EditorWindowController.editorBaseColor.setFill()
-        bounds.fill()
     }
 }
 

@@ -326,6 +326,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
+        drawBaseImageEdgeSeparation(in: baseImageBounds)
         baseImage.draw(in: baseImageBounds, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
 
         for item in items {
@@ -354,16 +355,17 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
         // In-progress shapes
         if let start = dragStartPoint, let current = dragCurrentPoint {
+            let shiftHeld = NSEvent.modifierFlags.contains(.shift)
             switch currentTool {
             case .pen:
                 drawPen(points: currentPoints, color: currentColor, lineWidth: annotationStrokeWidth, isPreview: true)
             case .arrow:
                 drawArrow(from: start, to: current, color: currentColor, lineWidth: annotationStrokeWidth, isPreview: true)
             case .rectangle:
-                let rect = normalizedRect(from: start, to: current)
+                let rect = normalizedRect(from: start, to: current, constrain: shiftHeld)
                 drawRect(rect, color: currentColor, lineWidth: annotationStrokeWidth, isPreview: true)
             case .ellipse:
-                let rect = normalizedRect(from: start, to: current)
+                let rect = normalizedRect(from: start, to: current, constrain: shiftHeld)
                 drawEllipse(rect, color: currentColor, lineWidth: annotationStrokeWidth, isPreview: true)
             case .text:
                 break
@@ -376,6 +378,25 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         } else if currentTool == .pen && !currentPoints.isEmpty {
             drawPen(points: currentPoints, color: currentColor, lineWidth: annotationStrokeWidth, isPreview: true)
         }
+    }
+
+    /// Keep screenshot edges visible against both light and dark native backgrounds.
+    private func drawBaseImageEdgeSeparation(in rect: NSRect) {
+        guard rect.width >= 1, rect.height >= 1 else { return }
+        let borderRect = rect.insetBy(dx: -0.5, dy: -0.5)
+
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor.black.withAlphaComponent(0.12)
+        shadow.shadowBlurRadius = 3
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        shadow.set()
+
+        let path = NSBezierPath(rect: borderRect)
+        path.lineWidth = 1
+        NSColor.separatorColor.withAlphaComponent(0.8).setStroke()
+        path.stroke()
+        NSGraphicsContext.restoreGraphicsState()
     }
 
     private func drawSelectionOutline(_ rect: NSRect) {
@@ -538,6 +559,12 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         let lineHeight = font.boundingRectForFont.size.height
         let height = max(1, lines.count)
         return NSSize(width: maxWidth, height: lineHeight * CGFloat(height))
+    }
+
+    private var defaultTextFontSize: CGFloat {
+        let baseSize: CGFloat = 24
+        let scale = min(2.0, max(1.0, baseImage.size.width / 1400.0))
+        return round(baseSize * scale)
     }
 
     // MARK: - Geometry helpers
@@ -764,11 +791,19 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         return NSRect(x: clampedX, y: clampedY, width: size.width, height: size.height)
     }
 
-    private func normalizedRect(from p1: NSPoint, to p2: NSPoint) -> NSRect {
-        let minX = min(p1.x, p2.x)
-        let maxX = max(p1.x, p2.x)
-        let minY = min(p1.y, p2.y)
-        let maxY = max(p1.y, p2.y)
+    private func normalizedRect(from p1: NSPoint, to p2: NSPoint, constrain: Bool = false) -> NSRect {
+        var dx = p2.x - p1.x
+        var dy = p2.y - p1.y
+        if constrain {
+            let side = max(abs(dx), abs(dy))
+            dx = dx >= 0 ? side : -side
+            dy = dy >= 0 ? side : -side
+        }
+        let end = NSPoint(x: p1.x + dx, y: p1.y + dy)
+        let minX = min(p1.x, end.x)
+        let maxX = max(p1.x, end.x)
+        let minY = min(p1.y, end.y)
+        let maxY = max(p1.y, end.y)
         return NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
@@ -855,7 +890,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                 selectedTextIndex = nil
                 endTextEditingIfNeeded()
 
-                let item = TextItem(text: "", origin: point, color: currentColor, fontSize: 24)
+                let item = TextItem(text: "", origin: point, color: currentColor, fontSize: defaultTextFontSize)
                 pushUndoSnapshot()
                 items.append(.text(item))
                 let index = items.count - 1
@@ -926,6 +961,13 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         needsDisplay = true
     }
 
+    override func flagsChanged(with event: NSEvent) {
+        super.flagsChanged(with: event)
+        if dragStartPoint != nil && (currentTool == .rectangle || currentTool == .ellipse) {
+            needsDisplay = true
+        }
+    }
+
     override func mouseUp(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         lastMousePoint = point
@@ -978,14 +1020,16 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                 updateCanvasSizeIfNeeded()
             }
         case .rectangle:
-            let rect = normalizedRect(from: start, to: point)
+            let shiftHeld = event.modifierFlags.contains(.shift)
+            let rect = normalizedRect(from: start, to: point, constrain: shiftHeld)
             if rect.width >= 2, rect.height >= 2 {
                 pushUndoSnapshot()
                 items.append(.rect(rect: rect, color: currentColor, lineWidth: annotationStrokeWidth))
                 updateCanvasSizeIfNeeded()
             }
         case .ellipse:
-            let rect = normalizedRect(from: start, to: point)
+            let shiftHeld = event.modifierFlags.contains(.shift)
+            let rect = normalizedRect(from: start, to: point, constrain: shiftHeld)
             if rect.width >= 2, rect.height >= 2 {
                 pushUndoSnapshot()
                 items.append(.ellipse(rect: rect, color: currentColor, lineWidth: annotationStrokeWidth))
@@ -1080,7 +1124,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     private func resizeTextEditorToFit() {
         guard let editor = textEditor else { return }
-        let font = editor.font ?? NSFont.systemFont(ofSize: 24, weight: .regular)
+        let font = editor.font ?? NSFont.systemFont(ofSize: defaultTextFontSize, weight: .regular)
         let text = editor.string
         let contentSize = textContentSize(for: text, font: font)
         let width = max(contentSize.width + textPadding.width * 2, 60)

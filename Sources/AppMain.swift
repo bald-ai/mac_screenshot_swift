@@ -4,6 +4,7 @@ import AppKit
 struct MainApplication {
     static func main() {
         let app = NSApplication.shared
+        AppTheme.applyGlobalAppearance()
         let delegate = AppDelegate()
         app.delegate = delegate
         app.setActivationPolicy(.accessory)

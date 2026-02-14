@@ -41,12 +41,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         duplicateWarningLabel = NSTextField(labelWithString: "")
 
         let contentRect = NSRect(x: 0, y: 0, width: 520, height: 490)
-        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable]
+        let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         let window = NSWindow(contentRect: contentRect, styleMask: style, backing: .buffered, defer: false)
         window.center()
         window.title = "Screenshot App Settings"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.backgroundColor = .clear
         window.level = .floating
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        AppTheme.apply(to: window)
 
         super.init(window: window)
 
@@ -74,19 +78,22 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
 
         contentView.subviews.forEach { $0.removeFromSuperview() }
 
+        let surfaceView = MenuSurfaceMaterial.makeFillingView(frame: contentView.bounds)
+        contentView.addSubview(surfaceView)
+
         let rootStack = NSStackView()
         rootStack.orientation = .vertical
         rootStack.alignment = .leading
         rootStack.spacing = 12
         rootStack.translatesAutoresizingMaskIntoConstraints = false
 
-        contentView.addSubview(rootStack)
+        surfaceView.addSubview(rootStack)
 
         NSLayoutConstraint.activate([
-            rootStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 18),
-            rootStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            rootStack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -20),
-            rootStack.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -20)
+            rootStack.topAnchor.constraint(equalTo: surfaceView.safeAreaLayoutGuide.topAnchor, constant: 12),
+            rootStack.leadingAnchor.constraint(equalTo: surfaceView.leadingAnchor, constant: 20),
+            rootStack.trailingAnchor.constraint(lessThanOrEqualTo: surfaceView.trailingAnchor, constant: -20),
+            rootStack.bottomAnchor.constraint(lessThanOrEqualTo: surfaceView.safeAreaLayoutGuide.bottomAnchor, constant: -20)
         ])
 
         // MARK: General section

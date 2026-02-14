@@ -46,11 +46,7 @@ final class MessagePanelController: NSWindowController {
                              secondaryTitle: String?) {
         guard let contentView = window?.contentView else { return }
 
-        let container = NSVisualEffectView(frame: contentView.bounds)
-        container.material = .hudWindow
-        container.blendingMode = .behindWindow
-        container.state = .active
-        container.autoresizingMask = [.width, .height]
+        let container = MenuSurfaceMaterial.makeFillingView(frame: contentView.bounds)
         contentView.addSubview(container)
 
         titleLabel.stringValue = title
@@ -115,4 +111,3 @@ final class MessagePanelController: NSWindowController {
         close()
     }
 }
-
