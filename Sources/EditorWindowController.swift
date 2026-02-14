@@ -810,6 +810,7 @@ final class EditorWindowController: NSWindowController {
         }
 
         userZoomFactor = defaultUserZoomFactor
+        canvasView.setInitialTextZoomFactor(defaultUserZoomFactor)
         applyZoom()
     }
 

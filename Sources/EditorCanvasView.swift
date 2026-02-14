@@ -109,6 +109,9 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     private var isCommittingText = false
     private var isCancellingText = false
     private let textPadding = NSSize(width: 6, height: 4)
+    // Use the editor's initial zoom so newly created text has a stable on-screen size
+    // at open (100% vs 200% default start).
+    private var textCreationZoomFactor: CGFloat = 1.0
 
     // Rectangle selection state.
     private var selectionRect: NSRect?
@@ -185,6 +188,11 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     func setColor(_ color: NSColor) {
         currentColor = color
+    }
+
+    func setInitialTextZoomFactor(_ zoomFactor: CGFloat) {
+        guard zoomFactor.isFinite, zoomFactor > 0 else { return }
+        textCreationZoomFactor = zoomFactor
     }
 
     /// Ensure the full visible workspace can receive drawing events.
@@ -562,9 +570,9 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     }
 
     private var defaultTextFontSize: CGFloat {
-        let baseSize: CGFloat = 24
-        let scale = min(2.0, max(1.0, baseImage.size.width / 1400.0))
-        return round(baseSize * scale)
+        let targetOnScreenSize: CGFloat = 38.4
+        let normalizedZoom = max(0.01, textCreationZoomFactor)
+        return round(targetOnScreenSize / normalizedZoom)
     }
 
     // MARK: - Geometry helpers
