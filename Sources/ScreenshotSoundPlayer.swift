@@ -18,7 +18,6 @@ final class ScreenshotSoundPlayer {
         }
 
         guard let url = Bundle.module.url(forResource: "screenshot-sound", withExtension: "mp3") else {
-            Logger.shared.warning("ScreenshotSoundPlayer: Missing bundled resource screenshot-sound.mp3; capture sound not played")
             return
         }
 
@@ -27,17 +26,14 @@ final class ScreenshotSoundPlayer {
                 player = try AVAudioPlayer(contentsOf: url)
                 player?.prepareToPlay()
                 playerURL = url
-                Logger.shared.info("ScreenshotSoundPlayer: Loaded capture sound: \(url.lastPathComponent)")
             }
 
             // Restart from the beginning for each capture.
             player?.stop()
             player?.currentTime = 0
             if player?.play() != true {
-                Logger.shared.warning("ScreenshotSoundPlayer: Failed to play capture sound: \(url.lastPathComponent)")
             }
         } catch {
-            Logger.shared.error("ScreenshotSoundPlayer: Failed to load/play mp3 at \(url): \(error)")
             player = nil
             playerURL = nil
         }

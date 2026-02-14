@@ -806,6 +806,7 @@ final class EditorWindowController: NSWindowController {
     private func updateScrollLockAndRecentering() {
         guard let documentView = scrollView.documentView else { return }
         let clipSize = scrollView.contentView.bounds.size
+        canvasView.ensureDrawableAreaCoversVisibleSize(clipSize)
         let docSize = documentView.frame.size
         let epsilon: CGFloat = 1.0
 

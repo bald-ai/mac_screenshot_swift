@@ -3,7 +3,6 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: TrayService!
     private var settingsWindowController: SettingsWindowController?
-    private var ipcService: IPCService!
 
     private let settingsStore = SettingsStore()
     private var hotKeyService: HotKeyService!
@@ -12,14 +11,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var backupService: BackupService!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        Logger.shared.info("AppDelegate: Application launching...")
-        
         settingsStore.load()
-        Logger.shared.info("AppDelegate: Settings loaded")
 
         backupService = BackupService()
         clipboardService = ClipboardService()
-        Logger.shared.info("AppDelegate: Services initialized")
         
         // Keep the cache directories tidy across dev/test loops (matches legacy app behavior).
         backupService.purgeAllBackups()
@@ -29,46 +24,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                              backupService: backupService,
                                              clipboardService: clipboardService)
         hotKeyService = HotKeyService()
-        Logger.shared.info("AppDelegate: HotKeyService created")
 
         statusItemController = TrayService(
             onScreenshotArea: { [weak self] in
-                Logger.shared.info("AppDelegate: Area screenshot triggered from menu")
                 self?.triggerAreaScreenshot()
             },
             onScreenshotFull: { [weak self] in
-                Logger.shared.info("AppDelegate: Full screenshot triggered from menu")
                 self?.triggerFullScreenshot()
             },
             onReopenFinderSelection: { [weak self] in
-                Logger.shared.info("AppDelegate: Reopen Finder Selection triggered from menu")
                 self?.triggerReopenFinderSelection()
             },
             onShowSettings: { [weak self] in
-                Logger.shared.info("AppDelegate: Show settings triggered")
                 self?.showSettings()
             },
             onQuit: {
-                Logger.shared.info("AppDelegate: Quit triggered")
                 NSApp.terminate(nil)
             }
         )
-        Logger.shared.info("AppDelegate: TrayService created")
-        
-        // Start IPC service for CLI control
-        ipcService = IPCService(appDelegate: self)
-        ipcService.start()
-        Logger.shared.info("AppDelegate: IPC service started")
 
         registerHotKeys()
-        Logger.shared.info("AppDelegate: Application finished launching")
     }
     
-    func applicationWillTerminate(_ notification: Notification) {
-        Logger.shared.info("AppDelegate: Application terminating")
-        ipcService?.stop()
-    }
-
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
@@ -81,33 +58,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func triggerAreaScreenshot() {
-        Logger.shared.info("AppDelegate: triggerAreaScreenshot called")
         if settingsWindowController?.isRecordingAnyShortcut == true {
-            Logger.shared.info("AppDelegate: triggerAreaScreenshot ignored (shortcut recording active)")
             return
         }
         screenshotService.captureArea()
-        Logger.shared.info("AppDelegate: triggerAreaScreenshot completed")
     }
 
     private func triggerFullScreenshot() {
-        Logger.shared.info("AppDelegate: triggerFullScreenshot called")
         if settingsWindowController?.isRecordingAnyShortcut == true {
-            Logger.shared.info("AppDelegate: triggerFullScreenshot ignored (shortcut recording active)")
             return
         }
         screenshotService.captureFullScreen()
-        Logger.shared.info("AppDelegate: triggerFullScreenshot completed")
     }
 
     private func triggerReopenFinderSelection() {
-        Logger.shared.info("AppDelegate: triggerReopenFinderSelection called")
         if settingsWindowController?.isRecordingAnyShortcut == true {
-            Logger.shared.info("AppDelegate: triggerReopenFinderSelection ignored (shortcut recording active)")
             return
         }
         if screenshotService.isBusyForUserCommands {
-            Logger.shared.info("AppDelegate: triggerReopenFinderSelection ignored (app busy)")
             return
         }
 
@@ -133,12 +101,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             presentError(title: "Finder Error", message: error.localizedDescription)
         }
-
-        Logger.shared.info("AppDelegate: triggerReopenFinderSelection completed")
     }
 
     private func showSettings() {
-        Logger.shared.info("AppDelegate: showSettings called")
         // Menu-item actions run while NSMenu is tracking; defer opening the window
         // to the next runloop turn so the menu can dismiss first.
         DispatchQueue.main.async { [weak self] in
@@ -148,7 +113,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.activate(ignoringOtherApps: true)
             settingsWindowController.showWindow(nil)
             settingsWindowController.window?.makeKeyAndOrderFront(nil)
-            Logger.shared.info("AppDelegate: showSettings completed")
         }
     }
 
@@ -158,7 +122,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let created = SettingsWindowController(settingsStore: settingsStore, hotKeyService: hotKeyService)
         settingsWindowController = created
-        Logger.shared.info("AppDelegate: SettingsWindowController created")
         return created
     }
 
@@ -176,22 +139,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             DispatchQueue.main.async(execute: showAlert)
         }
-    }
-
-    // MARK: - IPC Access
-
-    func triggerFullScreenshotFromIPC() {
-        Logger.shared.info("AppDelegate: triggerFullScreenshotFromIPC called")
-        triggerFullScreenshot()
-    }
-
-    func triggerAreaScreenshotFromIPC() {
-        Logger.shared.info("AppDelegate: triggerAreaScreenshotFromIPC called")
-        triggerAreaScreenshot()
-    }
-
-    func cancelActiveWorkflowFromIPC() {
-        Logger.shared.info("AppDelegate: cancelActiveWorkflowFromIPC called")
-        screenshotService.cancelActiveWorkflow()
     }
 }

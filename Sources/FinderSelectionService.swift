@@ -66,7 +66,6 @@ enum FinderSelectionService {
         let parsed2 = parseSelectionResult(raw2)
         switch parsed2 {
         case .none:
-            Logger.shared.info("FinderSelectionService: No Finder selection (AppleScript returned NONE)")
             return .none
         case .multiple, .single:
             return parsed2
@@ -87,7 +86,6 @@ enum FinderSelectionService {
             let message = (errorDict[NSAppleScript.errorMessage] as? String)
                 ?? (errorDict["NSAppleScriptErrorMessage"] as? String)
                 ?? "Unknown AppleScript error."
-            Logger.shared.error("FinderSelectionService: AppleScript error: \(errorDict)")
             throw NSError(domain: "FinderSelectionService",
                           code: -2,
                           userInfo: [NSLocalizedDescriptionKey: message])
@@ -102,10 +100,8 @@ enum FinderSelectionService {
 
         let url = URL(fileURLWithPath: trimmed)
         if !FileManager.default.fileExists(atPath: url.path) {
-            Logger.shared.warning("FinderSelectionService: Finder returned path that does not exist: \(url.path)")
             return nil
         }
-        Logger.shared.info("FinderSelectionService: Selected item path: \(url.path)")
         return url
     }
 

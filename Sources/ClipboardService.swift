@@ -38,7 +38,6 @@ final class ClipboardService {
             }
         } catch {
             // Best-effort.
-            print("[ClipboardService] Failed to purge cache:", error)
         }
     }
 
@@ -78,7 +77,6 @@ final class ClipboardService {
                 try fileManager.copyItem(at: url, to: cachedURL)
                 sourceURL = cachedURL
             } catch {
-                print("[ClipboardService] Failed to cache file:", error)
                 // Fall back to using the original URL.
                 sourceURL = url
             }

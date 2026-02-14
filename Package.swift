@@ -7,8 +7,7 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "ScreenshotApp", targets: ["ScreenshotApp"]),
-        .executable(name: "DevCLI", targets: ["DevCLI"])
+        .executable(name: "ScreenshotApp", targets: ["ScreenshotApp"])
     ],
     dependencies: [
     ],
@@ -16,14 +15,9 @@ let package = Package(
         .executableTarget(
             name: "ScreenshotApp",
             path: "Sources",
-            exclude: ["DevCLI"],
             resources: [
                 .process("Resources")
             ]
-        ),
-        .executableTarget(
-            name: "DevCLI",
-            path: "Sources/DevCLI"
         )
     ]
 )

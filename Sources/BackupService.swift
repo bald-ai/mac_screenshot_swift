@@ -35,7 +35,6 @@ final class BackupService {
             }
         } catch {
             // Best-effort.
-            print("[BackupService] Failed to purge backups:", error)
         }
     }
 
@@ -54,7 +53,6 @@ final class BackupService {
             }
             try fileManager.copyItem(at: url, to: backupURL)
         } catch {
-            print("[BackupService] Failed to create backup:", error)
         }
     }
 
@@ -67,7 +65,6 @@ final class BackupService {
             do {
                 try fileManager.removeItem(at: backupURL)
             } catch {
-                print("[BackupService] Failed to remove backup:", error)
             }
         }
     }

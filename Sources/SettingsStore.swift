@@ -38,7 +38,6 @@ final class SettingsStore {
         } catch {
             // Fall back to defaults but do not overwrite the possibly-bad file.
             // This mirrors many macOS apps' behavior.
-            print("[SettingsStore] Failed to load settings: \(error)")
             settings = .default
         }
     }
@@ -48,7 +47,6 @@ final class SettingsStore {
         do {
             try persist(settings)
         } catch {
-            print("[SettingsStore] Failed to save settings: \(error)")
         }
     }
 

@@ -87,6 +87,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     private var undoStack: [[Item]] = []
     private let maxUndoLevels = 30
     private let annotationStrokeWidth: CGFloat = 4.0
+    private let canvasEdgeInset: CGFloat = 24.0
+    private let arrowHeadLength: CGFloat = 14.0
+    private let arrowHeadAngle: CGFloat = .pi / 6 // 30°
+    private var baseImageOrigin: NSPoint = .zero
 
     // In-progress drawing state
     private var currentPoints: [NSPoint] = [] // for pen
@@ -128,7 +132,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     init(image: NSImage, escapeFinalAction: FinalActionCommand = .deleteOnly) {
         self.baseImage = image
         self.escapeFinalAction = escapeFinalAction
-        let frame = NSRect(origin: .zero, size: image.size)
+        self.baseImageOrigin = NSPoint(x: canvasEdgeInset, y: canvasEdgeInset)
+        let frameSize = NSSize(width: image.size.width + canvasEdgeInset * 2,
+                               height: image.size.height + canvasEdgeInset * 2)
+        let frame = NSRect(origin: .zero, size: frameSize)
         super.init(frame: frame)
     }
 
@@ -180,6 +187,20 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         currentColor = color
     }
 
+    /// Ensure the full visible workspace can receive drawing events.
+    func ensureDrawableAreaCoversVisibleSize(_ visibleSize: NSSize) {
+        let targetWidth = max(frame.size.width, minimumCanvasSize.width, ceil(visibleSize.width))
+        let targetHeight = max(frame.size.height, minimumCanvasSize.height, ceil(visibleSize.height))
+        let targetSize = NSSize(width: targetWidth, height: targetHeight)
+        guard targetSize != frame.size else { return }
+
+        let dx = (targetSize.width - frame.size.width) / 2
+        let dy = (targetSize.height - frame.size.height) / 2
+        shiftCanvasContent(byX: dx, byY: dy)
+        setFrameSize(targetSize)
+        needsDisplay = true
+    }
+
     func undo() {
         guard let previous = undoStack.popLast() else { return }
         items = previous
@@ -211,7 +232,8 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         didPushUndoForImageDrag = false
         clearSelectionState()
         endTextEditingIfNeeded()
-        setFrameSize(baseImage.size)
+        baseImageOrigin = NSPoint(x: canvasEdgeInset, y: canvasEdgeInset)
+        setFrameSize(minimumCanvasSize)
         needsDisplay = true
     }
 
@@ -234,48 +256,13 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     /// Kept for compatibility with EditorWindowController.
     func compositeImage() -> NSImage {
-        let size = baseImage.size
-        let result = NSImage(size: size)
-
-        result.lockFocusFlipped(true)
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: size).fill()
-
-        let imageRect = NSRect(origin: .zero, size: size)
-        baseImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
-
-        for item in items {
-            draw(item: item)
-        }
-
-        result.unlockFocus()
-        return result
+        renderCompositeImage(croppingTo: exportBounds())
     }
 
     /// Renders the currently selected region from the composited image.
     func renderSelectedRegionImage() -> NSImage? {
         guard let rect = clampedSelectionRect else { return nil }
-        let source = compositeImage()
-        let outputSize = rect.size
-        let output = NSImage(size: outputSize)
-        output.lockFocusFlipped(true)
-        NSColor.clear.setFill()
-        NSRect(origin: .zero, size: outputSize).fill()
-
-        // Draw full source image shifted so the selected area lands at (0,0)
-        // in the output image. This keeps us in one flipped coordinate space.
-        let destination = NSRect(x: -rect.origin.x,
-                                 y: -rect.origin.y,
-                                 width: source.size.width,
-                                 height: source.size.height)
-        source.draw(in: destination,
-                    from: .zero,
-                    operation: .sourceOver,
-                    fraction: 1.0,
-                    respectFlipped: true,
-                    hints: nil)
-        output.unlockFocus()
-        return output
+        return renderCompositeImage(croppingTo: rect)
     }
 
     func selectedRegionPayload() -> (image: NSImage, rect: NSRect)? {
@@ -339,8 +326,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let imageRect = NSRect(origin: .zero, size: baseImage.size)
-        baseImage.draw(in: imageRect, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
+        baseImage.draw(in: baseImageBounds, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
 
         for item in items {
             draw(item: item)
@@ -505,14 +491,12 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         let dx = end.x - start.x
         let dy = end.y - start.y
         let angle = atan2(dy, dx)
-        let arrowLength: CGFloat = 14
-        let arrowAngle: CGFloat = .pi / 6 // 30°
 
         let tip = end
-        let point1 = NSPoint(x: tip.x - arrowLength * cos(angle - arrowAngle),
-                             y: tip.y - arrowLength * sin(angle - arrowAngle))
-        let point2 = NSPoint(x: tip.x - arrowLength * cos(angle + arrowAngle),
-                             y: tip.y - arrowLength * sin(angle + arrowAngle))
+        let point1 = NSPoint(x: tip.x - arrowHeadLength * cos(angle - arrowHeadAngle),
+                             y: tip.y - arrowHeadLength * sin(angle - arrowHeadAngle))
+        let point2 = NSPoint(x: tip.x - arrowHeadLength * cos(angle + arrowHeadAngle),
+                             y: tip.y - arrowHeadLength * sin(angle + arrowHeadAngle))
 
         path.move(to: tip)
         path.line(to: point1)
@@ -559,7 +543,182 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     // MARK: - Geometry helpers
 
     private var baseImageBounds: NSRect {
-        NSRect(origin: .zero, size: baseImage.size)
+        NSRect(x: baseImageOrigin.x, y: baseImageOrigin.y, width: baseImage.size.width, height: baseImage.size.height)
+    }
+
+    private var minimumCanvasSize: NSSize {
+        NSSize(width: baseImage.size.width + canvasEdgeInset * 2,
+               height: baseImage.size.height + canvasEdgeInset * 2)
+    }
+
+    private func normalizedRect(_ rect: NSRect) -> NSRect {
+        let minX = floor(rect.minX)
+        let minY = floor(rect.minY)
+        let maxX = ceil(rect.maxX)
+        let maxY = ceil(rect.maxY)
+        return NSRect(x: minX, y: minY, width: max(0, maxX - minX), height: max(0, maxY - minY))
+    }
+
+    private func shiftedPoint(_ point: NSPoint, byX dx: CGFloat, byY dy: CGFloat) -> NSPoint {
+        NSPoint(x: point.x + dx, y: point.y + dy)
+    }
+
+    private func shiftedRect(_ rect: NSRect, byX dx: CGFloat, byY dy: CGFloat) -> NSRect {
+        NSRect(x: rect.origin.x + dx, y: rect.origin.y + dy, width: rect.width, height: rect.height)
+    }
+
+    private func shiftedItems(_ source: [Item], byX dx: CGFloat, byY dy: CGFloat) -> [Item] {
+        source.map { item in
+            switch item {
+            case .pen(let points, let color, let lineWidth):
+                return .pen(points: points.map { shiftedPoint($0, byX: dx, byY: dy) }, color: color, lineWidth: lineWidth)
+            case .arrow(let start, let end, let color, let lineWidth):
+                return .arrow(start: shiftedPoint(start, byX: dx, byY: dy),
+                              end: shiftedPoint(end, byX: dx, byY: dy),
+                              color: color,
+                              lineWidth: lineWidth)
+            case .rect(let rect, let color, let lineWidth):
+                return .rect(rect: shiftedRect(rect, byX: dx, byY: dy), color: color, lineWidth: lineWidth)
+            case .ellipse(let rect, let color, let lineWidth):
+                return .ellipse(rect: shiftedRect(rect, byX: dx, byY: dy), color: color, lineWidth: lineWidth)
+            case .text(var textItem):
+                textItem.origin = shiftedPoint(textItem.origin, byX: dx, byY: dy)
+                return .text(textItem)
+            case .image(let image, let rect):
+                return .image(image: image, rect: shiftedRect(rect, byX: dx, byY: dy))
+            case .erase(let rect):
+                return .erase(rect: shiftedRect(rect, byX: dx, byY: dy))
+            }
+        }
+    }
+
+    private func shiftCanvasContent(byX dx: CGFloat, byY dy: CGFloat) {
+        guard dx != 0 || dy != 0 else { return }
+
+        baseImageOrigin = shiftedPoint(baseImageOrigin, byX: dx, byY: dy)
+        items = shiftedItems(items, byX: dx, byY: dy)
+        undoStack = undoStack.map { shiftedItems($0, byX: dx, byY: dy) }
+
+        if let point = dragStartPoint {
+            dragStartPoint = shiftedPoint(point, byX: dx, byY: dy)
+        }
+        if let point = dragCurrentPoint {
+            dragCurrentPoint = shiftedPoint(point, byX: dx, byY: dy)
+        }
+        currentPoints = currentPoints.map { shiftedPoint($0, byX: dx, byY: dy) }
+
+        if let point = selectionDragStart {
+            selectionDragStart = shiftedPoint(point, byX: dx, byY: dy)
+        }
+        if let point = selectionDragCurrent {
+            selectionDragCurrent = shiftedPoint(point, byX: dx, byY: dy)
+        }
+        if let rect = selectionRect {
+            selectionRect = shiftedRect(rect, byX: dx, byY: dy)
+        }
+
+        if let rect = copiedSelectionRect {
+            copiedSelectionRect = shiftedRect(rect, byX: dx, byY: dy)
+        }
+        if let point = lastMousePoint {
+            lastMousePoint = shiftedPoint(point, byX: dx, byY: dy)
+        }
+
+        if let editor = textEditor {
+            editor.frame = shiftedRect(editor.frame, byX: dx, byY: dy)
+        }
+    }
+
+    private func boundsForPoints(_ points: [NSPoint], padding: CGFloat) -> NSRect? {
+        guard let first = points.first else { return nil }
+        var minX = first.x
+        var minY = first.y
+        var maxX = first.x
+        var maxY = first.y
+        for point in points.dropFirst() {
+            minX = min(minX, point.x)
+            minY = min(minY, point.y)
+            maxX = max(maxX, point.x)
+            maxY = max(maxY, point.y)
+        }
+        return NSRect(x: minX - padding,
+                      y: minY - padding,
+                      width: (maxX - minX) + (padding * 2),
+                      height: (maxY - minY) + (padding * 2))
+    }
+
+    private func boundsForArrow(start: NSPoint, end: NSPoint, lineWidth: CGFloat) -> NSRect {
+        let angle = atan2(end.y - start.y, end.x - start.x)
+        let wing1 = NSPoint(x: end.x - arrowHeadLength * cos(angle - arrowHeadAngle),
+                            y: end.y - arrowHeadLength * sin(angle - arrowHeadAngle))
+        let wing2 = NSPoint(x: end.x - arrowHeadLength * cos(angle + arrowHeadAngle),
+                            y: end.y - arrowHeadLength * sin(angle + arrowHeadAngle))
+        let minX = min(start.x, end.x, wing1.x, wing2.x)
+        let minY = min(start.y, end.y, wing1.y, wing2.y)
+        let maxX = max(start.x, end.x, wing1.x, wing2.x)
+        let maxY = max(start.y, end.y, wing1.y, wing2.y)
+        let padding = lineWidth / 2
+        return NSRect(x: minX - padding,
+                      y: minY - padding,
+                      width: (maxX - minX) + (padding * 2),
+                      height: (maxY - minY) + (padding * 2))
+    }
+
+    private func boundsForItem(_ item: Item) -> NSRect? {
+        switch item {
+        case .pen(let points, _, let lineWidth):
+            return boundsForPoints(points, padding: lineWidth / 2)
+        case .arrow(let start, let end, _, let lineWidth):
+            guard distance(from: start, to: end) >= 2 else { return nil }
+            return boundsForArrow(start: start, end: end, lineWidth: lineWidth)
+        case .rect(let rect, _, let lineWidth):
+            return rect.insetBy(dx: -lineWidth / 2, dy: -lineWidth / 2)
+        case .ellipse(let rect, _, let lineWidth):
+            return rect.insetBy(dx: -lineWidth / 2, dy: -lineWidth / 2)
+        case .text(let textItem):
+            return textBounds(for: textItem)
+        case .image(_, let rect):
+            return rect
+        case .erase(let rect):
+            return rect
+        }
+    }
+
+    private func exportBounds() -> NSRect {
+        var unionRect = baseImageBounds
+        for item in items {
+            guard let itemBounds = boundsForItem(item) else { continue }
+            unionRect = unionRect.union(itemBounds)
+        }
+        return normalizedRect(unionRect)
+    }
+
+    private func renderCompositeImage(croppingTo cropRect: NSRect) -> NSImage {
+        let normalizedCrop = normalizedRect(cropRect)
+        let result = NSImage(size: normalizedCrop.size)
+        result.lockFocusFlipped(true)
+        NSColor.clear.setFill()
+        NSRect(origin: .zero, size: normalizedCrop.size).fill()
+
+        NSGraphicsContext.saveGraphicsState()
+        let translation = NSAffineTransform()
+        translation.translateX(by: -normalizedCrop.minX, yBy: -normalizedCrop.minY)
+        translation.concat()
+
+        baseImage.draw(in: baseImageBounds,
+                       from: .zero,
+                       operation: .sourceOver,
+                       fraction: 1.0,
+                       respectFlipped: true,
+                       hints: nil)
+
+        for item in items {
+            draw(item: item)
+        }
+
+        NSGraphicsContext.restoreGraphicsState()
+        result.unlockFocus()
+        return result
     }
 
     private var clampedSelectionRect: NSRect? {
@@ -628,46 +787,15 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     /// Ensure the canvas is large enough to contain the base image and all annotations.
     private func updateCanvasSizeIfNeeded() {
-        var unionRect = NSRect(origin: .zero, size: baseImage.size)
+        var unionRect = baseImageBounds
 
         for item in items {
-            switch item {
-            case .pen(let points, _, _):
-                guard let first = points.first else { continue }
-                var minX = first.x
-                var minY = first.y
-                var maxX = first.x
-                var maxY = first.y
-                for p in points.dropFirst() {
-                    minX = min(minX, p.x)
-                    minY = min(minY, p.y)
-                    maxX = max(maxX, p.x)
-                    maxY = max(maxY, p.y)
-                }
-                let rect = NSRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-                unionRect = unionRect.union(rect)
-
-            case .arrow(let start, let end, _, _):
-                let rect = normalizedRect(from: start, to: end)
-                unionRect = unionRect.union(rect)
-
-            case .rect(let rect, _, _):
-                unionRect = unionRect.union(rect)
-
-            case .ellipse(let rect, _, _):
-                unionRect = unionRect.union(rect)
-
-            case .text(let textItem):
-                unionRect = unionRect.union(textBounds(for: textItem))
-            case .image(_, let rect):
-                unionRect = unionRect.union(rect)
-            case .erase:
-                break
-            }
+            guard let itemBounds = boundsForItem(item) else { continue }
+            unionRect = unionRect.union(itemBounds)
         }
 
-        let newWidth = max(unionRect.maxX, baseImage.size.width)
-        let newHeight = max(unionRect.maxY, baseImage.size.height)
+        let newWidth = max(unionRect.maxX, minimumCanvasSize.width, frame.size.width)
+        let newHeight = max(unionRect.maxY, minimumCanvasSize.height, frame.size.height)
         let newSize = NSSize(width: ceil(newWidth), height: ceil(newHeight))
 
         if newSize != frame.size {

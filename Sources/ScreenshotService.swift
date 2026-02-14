@@ -51,15 +51,12 @@ final class ScreenshotService: NSObject {
             return
         }
 
-        Logger.shared.info("ScreenshotService: captureArea called")
         if selectionOverlay != nil {
             // While selection is active, repeated area-hotkey triggers should be ignored.
             // Cancellation is owned by explicit user action (Esc/right-click/etc) and other flows.
-            Logger.shared.info("ScreenshotService: captureArea - selection already active, ignoring")
             return
         }
         guard canStartNewCapture() else {
-            Logger.shared.info("ScreenshotService: captureArea - cannot start new capture")
             return
         }
 
@@ -67,9 +64,7 @@ final class ScreenshotService: NSObject {
         let overlay = SelectionOverlay()
         overlay.delegate = self
         selectionOverlay = overlay
-        Logger.shared.info("ScreenshotService: Starting selection overlay")
         overlay.beginSelection()
-        Logger.shared.info("ScreenshotService: captureArea completed")
     }
 
     /// Captures the full contents of the primary display.
@@ -81,24 +76,18 @@ final class ScreenshotService: NSObject {
             return
         }
 
-        Logger.shared.info("ScreenshotService: captureFullScreen called")
         if selectionOverlay != nil {
-            Logger.shared.info("ScreenshotService: captureFullScreen - selection active, cancelling overlay and continuing with fullscreen capture")
             selectionOverlay?.cancelSelection()
             selectionOverlay = nil
         }
         guard canStartNewCapture() else {
-            Logger.shared.info("ScreenshotService: captureFullScreen - cannot start new capture")
             return
         }
         guard let screen = NSScreen.main ?? NSScreen.screens.first else {
-            Logger.shared.error("ScreenshotService: captureFullScreen - no screen found")
             return
         }
-        Logger.shared.info("ScreenshotService: captureFullScreen - capturing on screen \(screen)")
 
         captureRegion(in: screen.frame, on: screen)
-        Logger.shared.info("ScreenshotService: captureFullScreen completed")
     }
 
     /// Starts the rename/note flow for an already-saved image.
@@ -110,14 +99,11 @@ final class ScreenshotService: NSObject {
             return
         }
 
-        Logger.shared.info("ScreenshotService: beginPostCaptureFlow called for \(url)")
         guard activeWorkflow == nil else {
-            Logger.shared.info("ScreenshotService: beginPostCaptureFlow - workflow already active")
             // Ignore requests while a workflow is active; avoid modal alerts that can
             // wedge the UI if the app isn't frontmost.
             return
         }
-        Logger.shared.info("ScreenshotService: beginPostCaptureFlow - creating workflow controller")
 
         let workflow = ScreenshotWorkflowController(
             fileURL: url,
@@ -127,18 +113,13 @@ final class ScreenshotService: NSObject {
             sourceScreen: screen,
             escapeKeyDeletesFile: escapeKeyDeletesFile
         )
-        Logger.shared.info("ScreenshotService: beginPostCaptureFlow - workflow created")
 
         workflow.onFinish = { [weak self] in
-            Logger.shared.info("ScreenshotService: Workflow onFinish called")
             self?.activeWorkflow = nil
         }
-        Logger.shared.info("ScreenshotService: beginPostCaptureFlow - onFinish set")
 
         activeWorkflow = workflow
-        Logger.shared.info("ScreenshotService: beginPostCaptureFlow - workflow assigned to activeWorkflow")
         workflow.start()
-        Logger.shared.info("ScreenshotService: beginPostCaptureFlow - workflow.start() called")
     }
 
     /// Single shared "busy gate" for user commands.
@@ -157,15 +138,11 @@ final class ScreenshotService: NSObject {
             return
         }
 
-        Logger.shared.info("ScreenshotService: cancelActiveWorkflow called")
         guard let workflow = activeWorkflow else {
-            Logger.shared.info("ScreenshotService: No active workflow to cancel")
             return
         }
-        Logger.shared.info("ScreenshotService: Cancelling workflow")
         workflow.cancel()
         activeWorkflow = nil
-        Logger.shared.info("ScreenshotService: Workflow cancelled and cleared")
     }
 
     /// Saves an arbitrary image to the Desktop using the current settings
@@ -202,13 +179,10 @@ final class ScreenshotService: NSObject {
     // MARK: - Internal capture pipeline
 
     private func canStartNewCapture() -> Bool {
-        Logger.shared.info("ScreenshotService: canStartNewCapture called, activeWorkflow is nil: \(activeWorkflow == nil)")
         if isCaptureInProgress {
-            Logger.shared.info("ScreenshotService: Cannot start new capture - capture already in progress")
             return false
         }
         if activeWorkflow != nil {
-            Logger.shared.info("ScreenshotService: Cannot start new capture - workflow already active")
             // Do not present a modal NSAlert here.
             //
             // `NSAlert.runModal()` can create a hidden app-modal session when the app is not
@@ -217,7 +191,6 @@ final class ScreenshotService: NSObject {
             // we simply ignore new capture triggers.
             return false
         }
-        Logger.shared.info("ScreenshotService: Can start new capture")
         return true
     }
 
@@ -233,12 +206,10 @@ final class ScreenshotService: NSObject {
         }
 
         if isCaptureInProgress {
-            Logger.shared.info("ScreenshotService: captureRegion - capture already in progress, ignoring")
             return
         }
 
         guard let displayID = screen.displayID else {
-            Logger.shared.error("ScreenshotService: captureRegion - missing display ID")
             presentError(title: "Screenshot failed", message: "Unable to determine display ID.")
             return
         }
@@ -246,13 +217,10 @@ final class ScreenshotService: NSObject {
         let screenSnapshot = ScreenSnapshot(displayID: displayID,
                                             frame: screen.frame,
                                             scale: screen.backingScaleFactor)
-        Logger.shared.info("ScreenshotService: Screen snapshot frame: \(screenSnapshot.frame), scale: \(screenSnapshot.scale)")
 
-        Logger.shared.info("ScreenshotService: captureRegion called with rect \(rect)")
         isCaptureInProgress = true
         Task { [weak self] in
             guard let self = self else {
-                Logger.shared.error("ScreenshotService: captureRegion - self is nil")
                 return
             }
             defer {
@@ -261,69 +229,49 @@ final class ScreenshotService: NSObject {
                 }
             }
 
-            Logger.shared.info("ScreenshotService: Starting captureCGImage")
             let screenID = screenSnapshot.displayID
             do {
                 let cgImage = try await self.captureCGImage(rect: rect, on: screenSnapshot)
-                Logger.shared.info("ScreenshotService: captureCGImage completed, image size: \(cgImage.width)x\(cgImage.height)")
                 
                 let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-                Logger.shared.info("ScreenshotService: Created NSImage")
                 
                 let url = try self.saveImageToDesktop(nsImage)
-                Logger.shared.info("ScreenshotService: Image saved to \(url)")
                 
                 DispatchQueue.main.async { [weak self] in
                     self?.soundPlayer.playCaptureSound()
                     let targetScreen = self?.screenForDisplayID(screenID)
                     self?.beginPostCaptureFlow(forExistingFileAt: url, on: targetScreen)
                 }
-                Logger.shared.info("ScreenshotService: Post-capture flow started")
             } catch {
-                Logger.shared.error("ScreenshotService: captureRegion failed with error: \(error)")
                 self.presentError(title: "Screenshot failed", message: error.localizedDescription)
             }
         }
     }
 
     private func captureCGImage(rect: CGRect, on screen: ScreenSnapshot) async throws -> CGImage {
-        Logger.shared.info("ScreenshotService: captureCGImage called")
         if #available(macOS 14.0, *) {
-            Logger.shared.info("ScreenshotService: Using ScreenshotManager (macOS 14+)")
             return try await captureWithScreenshotManager(rect: rect, on: screen)
         } else {
-            Logger.shared.info("ScreenshotService: Using Legacy API")
             return try captureWithLegacyAPI(rect: rect, on: screen)
         }
     }
 
     @available(macOS 14.0, *)
     private func captureWithScreenshotManager(rect: CGRect, on screen: ScreenSnapshot) async throws -> CGImage {
-        Logger.shared.info("ScreenshotService: captureWithScreenshotManager started")
 
         let displayID = screen.displayID
-        Logger.shared.info("ScreenshotService: Display ID: \(displayID)")
-        Logger.shared.info("ScreenshotService: Screen frame: \(screen.frame), scale: \(screen.scale)")
-        Logger.shared.info("ScreenshotService: Requested rect (points): \(rect)")
 
-        Logger.shared.info("ScreenshotService: Getting SCShareableContent")
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        Logger.shared.info("ScreenshotService: Got content with \(content.displays.count) displays")
         
         guard let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else {
-            Logger.shared.error("ScreenshotService: No display found for capture")
             throw NSError(domain: "ScreenshotService", code: -3, userInfo: [NSLocalizedDescriptionKey: "No display found for capture."])
         }
-        Logger.shared.info("ScreenshotService: Using display: \(display.displayID)")
 
-        let scale = screen.scale
-        let screenFrame = screen.frame
         guard let captureRect = captureRects(rectInScreenPoints: rect, screen: screen) else {
             throw NSError(domain: "ScreenshotService",
                           code: -7,
                           userInfo: [NSLocalizedDescriptionKey: "Selected area is outside the screen bounds."])
         }
-        Logger.shared.info("ScreenshotService: clampedPointRect: \(captureRect.pointRect), clampedPixelRect: \(captureRect.pixelRect)")
 
         let configuration = SCStreamConfiguration()
         configuration.sourceRect = captureRect.pointRect
@@ -331,31 +279,24 @@ final class ScreenshotService: NSObject {
         configuration.height = Int(captureRect.pixelRect.height)
         configuration.showsCursor = true
         configuration.scalesToFit = false
-        Logger.shared.info("ScreenshotService: SC config width=\(configuration.width) height=\(configuration.height) sourceRect(points)=\(configuration.sourceRect)")
 
         let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
-        Logger.shared.info("ScreenshotService: Starting SCScreenshotManager.captureImage")
 
         return try await withCheckedThrowingContinuation { continuation in
             SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { [weak self] image, error in
                 if let error = error {
-                    self?.logCaptureError(error, context: "SCScreenshotManager.captureImage")
                     if let self = self, self.shouldFallbackToLegacy(error) {
-                        Logger.shared.warning("ScreenshotService: Falling back to legacy capture after invalid parameter")
                         do {
                             let legacy = try self.captureWithLegacyAPI(rect: rect, on: screen)
                             continuation.resume(returning: legacy)
                             return
                         } catch {
-                            self.logCaptureError(error, context: "Legacy fallback failed")
                         }
                     }
                     continuation.resume(throwing: error)
                 } else if let image = image {
-                    Logger.shared.info("ScreenshotService: captureImage succeeded")
                     continuation.resume(returning: image)
                 } else {
-                    Logger.shared.error("ScreenshotService: captureImage returned nil")
                     let err = NSError(domain: "ScreenshotService", code: -4, userInfo: [NSLocalizedDescriptionKey: "No image captured."])
                     continuation.resume(throwing: err)
                 }
@@ -368,7 +309,6 @@ final class ScreenshotService: NSObject {
         guard let captureRect = captureRects(rectInScreenPoints: rect, screen: screen) else {
             throw NSError(domain: "ScreenshotService", code: -6, userInfo: [NSLocalizedDescriptionKey: "Selected area is outside the screen bounds."])
         }
-        Logger.shared.info("ScreenshotService: Legacy clampedPixelRect: \(captureRect.pixelRect)")
 
         if let image = CGDisplayCreateImage(displayID, rect: captureRect.pixelRect) {
             return image
@@ -480,18 +420,11 @@ final class ScreenshotService: NSObject {
             height: clampedPoints.size.height * scale
         )
 
-        Logger.shared.info("ScreenshotService: localRectPoints: \(localRectPoints), pointRectTopLeft: \(pointRectTopLeft), clampedPoints: \(clampedPoints), pixelRect: \(pixelRect)")
 
         guard clampedPoints.width >= 1, clampedPoints.height >= 1 else { return nil }
         guard pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
 
         return (pointRect: clampedPoints, pixelRect: pixelRect.integral)
-    }
-
-    private func logCaptureError(_ error: Error, context: String) {
-        let nsError = error as NSError
-        Logger.shared.error("ScreenshotService: \(context) error domain=\(nsError.domain) code=\(nsError.code) userInfo=\(nsError.userInfo)")
-        Logger.shared.error("ScreenshotService: \(context) localizedDescription=\(nsError.localizedDescription)")
     }
 
     private func shouldFallbackToLegacy(_ error: Error) -> Bool {
@@ -533,14 +466,11 @@ extension ScreenshotService: SelectionOverlayDelegate {
 
 private extension ScreenshotService {
     func handleSelection(rect: CGRect?, on screen: NSScreen) {
-        Logger.shared.info("ScreenshotService: selectionOverlay delegate called")
         selectionOverlay = nil
         guard let rect = rect else {
             // User cancelled; no file is created and no UI is shown.
-            Logger.shared.info("ScreenshotService: Selection cancelled by user")
             return
         }
-        Logger.shared.info("ScreenshotService: Selection completed with rect: \(rect)")
         captureRegion(in: rect, on: screen)
     }
 

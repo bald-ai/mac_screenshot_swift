@@ -18,7 +18,6 @@ final class TrayService {
         onShowSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
-        Logger.shared.info("TrayService: Initializing...")
         self.onScreenshotArea = onScreenshotArea
         self.onScreenshotFull = onScreenshotFull
         self.onReopenFinderSelection = onReopenFinderSelection
@@ -26,10 +25,8 @@ final class TrayService {
         self.onQuit = onQuit
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        Logger.shared.info("TrayService: Status item created")
         configureStatusItem()
         menu = makeMenu()
-        Logger.shared.info("TrayService: Initialization complete")
     }
 
     private func configureStatusItem() {

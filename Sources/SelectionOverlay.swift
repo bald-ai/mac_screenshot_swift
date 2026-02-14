@@ -60,7 +60,6 @@ final class SelectionOverlay: NSObject {
 
     /// Begins an area selection on the display that currently contains the mouse.
     func beginSelection() {
-        Logger.shared.info("SelectionOverlay: beginSelection called")
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
                 self?.beginSelection()
@@ -68,15 +67,12 @@ final class SelectionOverlay: NSObject {
             return
         }
         guard window == nil else {
-            Logger.shared.info("SelectionOverlay: Window already exists, returning")
             return
         }
 
         guard let targetScreen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main else {
-            Logger.shared.error("SelectionOverlay: No target screen found")
             return
         }
-        Logger.shared.info("SelectionOverlay: Target screen: \(targetScreen.frame)")
 
         screen = targetScreen
 
@@ -99,10 +95,8 @@ final class SelectionOverlay: NSObject {
         view.backingScaleFactor = targetScreen.backingScaleFactor
         view.onComplete = { [weak self] rectInView in
             guard let self = self else {
-                Logger.shared.error("SelectionOverlay: onComplete - self is nil")
                 return
             }
-            Logger.shared.info("SelectionOverlay: onComplete with rect: \(String(describing: rectInView))")
             self.finish(with: rectInView)
         }
 
@@ -116,7 +110,6 @@ final class SelectionOverlay: NSObject {
                                                selector: #selector(handleAppDeactivation),
                                                name: NSApplication.didResignActiveNotification,
                                                object: nil)
-        Logger.shared.info("SelectionOverlay: Window created and shown")
     }
 
     /// Cancels the current selection, if any.
@@ -131,20 +124,16 @@ final class SelectionOverlay: NSObject {
     }
 
     private func finish(with rectInView: CGRect?) {
-        Logger.shared.info("SelectionOverlay: finish called with rect: \(String(describing: rectInView))")
         guard let screen = screen else {
-            Logger.shared.error("SelectionOverlay: finish - no screen, tearing down")
             tearDown()
             return
         }
 
         defer { 
-            Logger.shared.info("SelectionOverlay: finish - tearing down in defer")
             tearDown() 
         }
 
         guard let window = window else { 
-            Logger.shared.error("SelectionOverlay: finish - no window")
             return 
         }
 
@@ -183,12 +172,10 @@ final class SelectionOverlay: NSObject {
             height: rectInScreenPoints.size.height * scale
         )
 
-        Logger.shared.info("SelectionOverlay: Calling delegate with selected rect")
         delegate?.selectionOverlay(self, didSelect: rectInScreenPixels)
     }
 
     private func tearDown() {
-        Logger.shared.info("SelectionOverlay: tearDown called")
         NotificationCenter.default.removeObserver(self,
                                                   name: NSApplication.didResignActiveNotification,
                                                   object: nil)
@@ -197,13 +184,11 @@ final class SelectionOverlay: NSObject {
         window = nil
         selectionView = nil
         screen = nil
-        Logger.shared.info("SelectionOverlay: tearDown completed")
     }
 }
 
 private extension SelectionOverlay {
     @objc func handleAppDeactivation() {
-        Logger.shared.info("SelectionOverlay: App resigned active, cancelling selection")
         cancelSelection()
     }
 }

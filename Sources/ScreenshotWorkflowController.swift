@@ -39,34 +39,28 @@ final class ScreenshotWorkflowController {
          backupService: BackupService,
          sourceScreen: NSScreen?,
          escapeKeyDeletesFile: Bool) {
-        Logger.shared.info("ScreenshotWorkflowController: Initializing with file \(fileURL)")
         self.fileURL = fileURL
         self.settingsStore = settingsStore
         self.clipboardService = clipboardService
         self.backupService = backupService
         self.sourceScreen = sourceScreen
         self.escapeKeyDeletesFile = escapeKeyDeletesFile
-        Logger.shared.info("ScreenshotWorkflowController: Initialization complete")
     }
 
     // MARK: - Public API
 
     func start() {
-        Logger.shared.info("ScreenshotWorkflowController: start() called")
         // Ensure UI operations happen on main thread
         if Thread.isMainThread {
             presentRenamePanel()
         } else {
-            Logger.shared.info("ScreenshotWorkflowController: Dispatching to main thread")
             DispatchQueue.main.async { [weak self] in
                 self?.presentRenamePanel()
             }
         }
-        Logger.shared.info("ScreenshotWorkflowController: start() completed")
     }
 
     func cancel() {
-        Logger.shared.info("ScreenshotWorkflowController: cancel() called")
         // Close any open panels
         renameController?.close()
         noteController?.close()
@@ -74,37 +68,28 @@ final class ScreenshotWorkflowController {
         renameController = nil
         noteController = nil
         editorController = nil
-        Logger.shared.info("ScreenshotWorkflowController: All panels closed")
     }
 
     // MARK: - Panels
 
     private func presentRenamePanel() {
-        Logger.shared.info("ScreenshotWorkflowController: presentRenamePanel called on thread: \(Thread.current)")
         guard Thread.isMainThread else {
-            Logger.shared.error("ScreenshotWorkflowController: presentRenamePanel called off main thread!")
             DispatchQueue.main.async { [weak self] in
                 self?.presentRenamePanel()
             }
             return
         }
-        Logger.shared.info("ScreenshotWorkflowController: Creating RenamePanelController with filename: \(fileURL.lastPathComponent)")
         let controller = RenamePanelController(initialFilename: fileURL.lastPathComponent,
                                                escapeKeyDeletesFile: escapeKeyDeletesFile)
-        Logger.shared.info("ScreenshotWorkflowController: RenamePanelController created")
         controller.onAction = { [weak self] action in
             self?.handleRenameAction(action)
         }
         renameController = controller
-        Logger.shared.info("ScreenshotWorkflowController: Centering window")
         center(controller.window, on: sourceScreen)
-        Logger.shared.info("ScreenshotWorkflowController: Showing rename controller without activating app")
         // Do NOT activate or change activation policy here.
         // Activating the app can yank the user out of their current Space/fullscreen app
         // (it often looks like being “sent to Desktop”). We want a Spotlight-like panel.
         controller.show()
-        Logger.shared.info("ScreenshotWorkflowController: Window shown, isKey: \(controller.window?.isKeyWindow ?? false)")
-        Logger.shared.info("ScreenshotWorkflowController: presentRenamePanel completed")
     }
 
     private func presentNotePanel(existingText: String = "") {
@@ -137,60 +122,38 @@ final class ScreenshotWorkflowController {
     // MARK: - Rename handling
 
     private func handleRenameAction(_ action: RenamePanelAction) {
-        Logger.shared.info("ScreenshotWorkflowController: handleRenameAction called with action: \(action)")
         switch action {
         case .save(let newName):
-            Logger.shared.info("ScreenshotWorkflowController: Processing .save with name: '\(newName)'")
             guard applyRenameIfNeeded(newName: newName) else {
-                Logger.shared.warning("ScreenshotWorkflowController: applyRenameIfNeeded returned false, aborting")
                 return
             }
-            Logger.shared.info("ScreenshotWorkflowController: Calling complete(.saveOnly)")
             complete(action: .saveOnly, note: nil)
-            Logger.shared.info("ScreenshotWorkflowController: .save flow completed")
 
         case .copyAndSave(let newName):
-            Logger.shared.info("ScreenshotWorkflowController: Processing .copyAndSave with name: '\(newName)'")
             guard applyRenameIfNeeded(newName: newName) else {
-                Logger.shared.warning("ScreenshotWorkflowController: applyRenameIfNeeded returned false, aborting")
                 return
             }
-            Logger.shared.info("ScreenshotWorkflowController: Calling complete(.copyAndSave)")
             complete(action: .copyAndSave, note: nil)
-            Logger.shared.info("ScreenshotWorkflowController: .copyAndSave flow completed")
 
         case .copyAndDelete(let newName):
-            Logger.shared.info("ScreenshotWorkflowController: Processing .copyAndDelete with name: '\(newName)'")
             guard applyRenameIfNeeded(newName: newName) else {
-                Logger.shared.warning("ScreenshotWorkflowController: applyRenameIfNeeded returned false, aborting")
                 return
             }
-            Logger.shared.info("ScreenshotWorkflowController: Calling complete(.copyAndDelete)")
             complete(action: .copyAndDelete, note: nil)
-            Logger.shared.info("ScreenshotWorkflowController: .copyAndDelete flow completed")
 
         case .delete:
-            Logger.shared.info("ScreenshotWorkflowController: Processing .delete")
             complete(action: .deleteOnly, note: nil)
-            Logger.shared.info("ScreenshotWorkflowController: .delete flow completed")
 
         case .close:
-            Logger.shared.info("ScreenshotWorkflowController: Processing .close")
             closeWorkflowWithoutDeleting()
-            Logger.shared.info("ScreenshotWorkflowController: .close flow completed")
 
         case .goToNote(let newName):
-            Logger.shared.info("ScreenshotWorkflowController: Processing .goToNote with name: '\(newName)'")
             guard applyRenameIfNeeded(newName: newName) else {
-                Logger.shared.warning("ScreenshotWorkflowController: applyRenameIfNeeded returned false, aborting")
                 return
             }
-            Logger.shared.info("ScreenshotWorkflowController: Presenting note panel")
             presentNotePanel(existingText: pendingNoteText)
-            Logger.shared.info("ScreenshotWorkflowController: Closing rename controller")
             renameController?.close()
             renameController = nil
-            Logger.shared.info("ScreenshotWorkflowController: .goToNote flow completed")
         }
     }
 
@@ -836,10 +799,8 @@ final class FloatingInputPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     init(contentRect: NSRect) {
-        Logger.shared.info("FloatingInputPanel: init starting")
         // Ensure we're on main thread for window creation
         if !Thread.isMainThread {
-            Logger.shared.error("FloatingInputPanel: Not on main thread! This will crash.")
         }
         
         // Try creating the panel - if this crashes, it's likely a macOS window server issue
@@ -847,7 +808,6 @@ final class FloatingInputPanel: NSPanel {
                    styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered,
                    defer: true)  // Changed to defer: true for safety
-        Logger.shared.info("FloatingInputPanel: super.init completed")
 
         isFloatingPanel = true
         level = .statusBar
@@ -862,20 +822,13 @@ final class FloatingInputPanel: NSPanel {
         // Ensure window is properly initialized
         self.isReleasedWhenClosed = false
         
-        Logger.shared.info("FloatingInputPanel: init completed")
     }
 
     override func keyDown(with event: NSEvent) {
-        Logger.shared.info("FloatingInputPanel: keyDown called with keyCode: \(event.keyCode)")
-        // Check if any responder in the chain handles this
-        if let firstResponder = self.firstResponder {
-            Logger.shared.info("FloatingInputPanel: firstResponder is \(type(of: firstResponder))")
-        }
         super.keyDown(with: event)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        Logger.shared.info("FloatingInputPanel: performKeyEquivalent called with keyCode: \(event.keyCode)")
         // Non-activating panels often don't get the standard Edit menu key equivalents
         // wired up (Cmd+C/V/X/A). Route them through the responder chain explicitly so
         // copy/paste works in our rename/note fields without activating the app.
@@ -934,13 +887,9 @@ final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
-        Logger.shared.info("CommandAwareTextField: keyDown called with keyCode: \(event.keyCode), modifiers: \(event.modifierFlags.intersection(.deviceIndependentFlagsMask))")
         if let command = interpret(event: event) {
-            Logger.shared.info("CommandAwareTextField: Interpreted command: \(command)")
             keyCommandHandler?(command)
-            Logger.shared.info("CommandAwareTextField: keyCommandHandler called")
         } else {
-            Logger.shared.info("CommandAwareTextField: No command interpreted, calling super.keyDown")
             super.keyDown(with: event)
         }
     }
@@ -948,7 +897,6 @@ final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if let event = NSApp.currentEvent,
            let command = interpret(event: event) {
-            Logger.shared.info("CommandAwareTextField: doCommandBy interpreted command: \(command)")
             keyCommandHandler?(command)
             return true
         }

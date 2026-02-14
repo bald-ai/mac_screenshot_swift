@@ -52,13 +52,11 @@ final class HotKeyService {
         fullHandler: @escaping Handler,
         reopenFinderSelectionHandler: @escaping Handler
     ) {
-        Logger.shared.info("HotKeyService: registerShortcuts called")
         self.areaHandler = areaHandler
         self.fullHandler = fullHandler
         self.reopenFinderSelectionHandler = reopenFinderSelectionHandler
 
         applyShortcuts(from: settings)
-        Logger.shared.info("HotKeyService: registerShortcuts completed")
     }
 
     /// Re-applies the current handlers using updated shortcut definitions.
@@ -75,7 +73,6 @@ final class HotKeyService {
     // MARK: - Internal registration
 
     private func applyShortcuts(from settings: Settings) {
-        Logger.shared.info("HotKeyService: applyShortcuts called")
         unregisterAll()
         installEventHandlerIfNeeded()
 
@@ -88,7 +85,6 @@ final class HotKeyService {
         registerShortcut(kind: .reopenFinderSelection,
                          shortcut: settings.shortcuts.reopenFinderSelection,
                          handler: reopenFinderSelectionHandler)
-        Logger.shared.info("HotKeyService: applyShortcuts completed")
     }
 
     private func registerShortcut(kind: HotKeyKind, shortcut: Shortcut, handler: Handler?) {
@@ -148,18 +144,13 @@ final class HotKeyService {
     }
 
     fileprivate func handleHotKey(with id: EventHotKeyID) {
-        Logger.shared.info("HotKeyService: handleHotKey called with id \(id.id)")
         guard id.signature == HotKeyService.hotKeySignature else {
-            Logger.shared.error("HotKeyService: Invalid signature")
             return
         }
         guard let registration = registrations[id.id] else {
-            Logger.shared.error("HotKeyService: No registration found for id \(id.id)")
             return
         }
-        Logger.shared.info("HotKeyService: Executing handler for id \(id.id)")
         registration.handler()
-        Logger.shared.info("HotKeyService: Handler completed for id \(id.id)")
     }
 
     // MARK: - Helpers
