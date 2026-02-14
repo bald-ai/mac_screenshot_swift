@@ -16,6 +16,8 @@ final class ScreenshotService: NSObject {
     private var selectionOverlay: SelectionOverlay?
     private var activeWorkflow: ScreenshotWorkflowController?
     private var isCaptureInProgress = false
+    private var isSystemAreaCaptureInProgress = false
+    private var systemAreaCaptureProcess: Process?
 
     private struct ScreenSnapshot: Sendable {
         let displayID: CGDirectDisplayID
@@ -41,8 +43,7 @@ final class ScreenshotService: NSObject {
 
     // MARK: - Public API
 
-    /// Starts an area capture on the active display using a full-screen
-    /// transparent overlay.
+    /// Starts an area capture using the native macOS area picker.
     func captureArea() {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
@@ -51,20 +52,11 @@ final class ScreenshotService: NSObject {
             return
         }
 
-        if selectionOverlay != nil {
-            // While selection is active, repeated area-hotkey triggers should be ignored.
-            // Cancellation is owned by explicit user action (Esc/right-click/etc) and other flows.
-            return
-        }
         guard canStartNewCapture() else {
             return
         }
 
-        NSApp.activate(ignoringOtherApps: true)
-        let overlay = SelectionOverlay()
-        overlay.delegate = self
-        selectionOverlay = overlay
-        overlay.beginSelection()
+        beginSystemAreaCapture()
     }
 
     /// Captures the full contents of the primary display.
@@ -125,7 +117,7 @@ final class ScreenshotService: NSObject {
     /// Single shared "busy gate" for user commands.
     /// If true, other commands should be ignored to avoid wedging UI state.
     var isBusyForUserCommands: Bool {
-        isCaptureInProgress || activeWorkflow != nil || selectionOverlay != nil
+        isCaptureInProgress || isSystemAreaCaptureInProgress || activeWorkflow != nil || selectionOverlay != nil
     }
 
     /// Cancels the active workflow and clears the activeWorkflow reference.
@@ -182,6 +174,9 @@ final class ScreenshotService: NSObject {
         if isCaptureInProgress {
             return false
         }
+        if isSystemAreaCaptureInProgress {
+            return false
+        }
         if activeWorkflow != nil {
             // Do not present a modal NSAlert here.
             //
@@ -192,6 +187,66 @@ final class ScreenshotService: NSObject {
             return false
         }
         return true
+    }
+
+    private func beginSystemAreaCapture() {
+        let tempURL = fileManager.temporaryDirectory
+            .appendingPathComponent("screenshotapp-area-\(UUID().uuidString)")
+            .appendingPathExtension("png")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-i", "-x", tempURL.path]
+
+        isSystemAreaCaptureInProgress = true
+        systemAreaCaptureProcess = process
+
+        process.terminationHandler = { [weak self] process in
+            DispatchQueue.main.async {
+                self?.finishSystemAreaCapture(tempURL: tempURL, process: process)
+            }
+        }
+
+        do {
+            try process.run()
+        } catch {
+            isSystemAreaCaptureInProgress = false
+            systemAreaCaptureProcess = nil
+            presentError(title: "Screenshot failed", message: "Could not start native area capture.")
+        }
+    }
+
+    private func finishSystemAreaCapture(tempURL: URL, process: Process) {
+        isSystemAreaCaptureInProgress = false
+        systemAreaCaptureProcess = nil
+
+        guard process.terminationStatus == 0 else {
+            // User cancelled the macOS picker.
+            try? fileManager.removeItem(at: tempURL)
+            return
+        }
+
+        guard fileManager.fileExists(atPath: tempURL.path) else {
+            // User cancelled picker without capturing.
+            return
+        }
+        guard let image = NSImage(contentsOf: tempURL) else {
+            try? fileManager.removeItem(at: tempURL)
+            return
+        }
+
+        do {
+            let url = try saveImageToDesktop(image)
+            soundPlayer.playCaptureSound()
+            let targetScreen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
+                ?? NSScreen.main
+                ?? NSScreen.screens.first
+            beginPostCaptureFlow(forExistingFileAt: url, on: targetScreen)
+        } catch {
+            presentError(title: "Screenshot failed", message: error.localizedDescription)
+        }
+
+        try? fileManager.removeItem(at: tempURL)
     }
 
     private func captureRegion(in rect: CGRect, on screen: NSScreen) {
