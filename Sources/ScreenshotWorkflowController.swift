@@ -180,50 +180,15 @@ final class ScreenshotWorkflowController {
     }
 
     private func sanitizeFilename(_ input: String, preservingExtensionOf url: URL) -> String {
-        let ext = url.pathExtension
-
-        var base = input
-        if !ext.isEmpty, base.lowercased().hasSuffix("." + ext.lowercased()) {
-            base = String(base.dropLast(ext.count + 1))
-        }
-
-        let forbidden = CharacterSet(charactersIn: "/:")
-        let cleaned = base.components(separatedBy: forbidden).joined()
-        let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-        let finalBase = trimmed.isEmpty ? url.deletingPathExtension().lastPathComponent : trimmed
-
-        if ext.isEmpty {
-            return finalBase
-        } else {
-            return "\(finalBase).\(ext)"
-        }
+        WorkflowFilenameLogic.sanitizeFilename(input, preservingExtensionOf: url)
     }
 
     private func uniqueURL(forProposedName name: String, in directory: URL) -> URL {
-        let fm = FileManager.default
-        let baseName = (name as NSString).deletingPathExtension
-        let ext = (name as NSString).pathExtension
-
-        var attempt = 1
-        while true {
-            let fileName: String
-            if attempt == 1 {
-                fileName = name
-            } else {
-                let suffix = "_\(attempt)"
-                if ext.isEmpty {
-                    fileName = baseName + suffix
-                } else {
-                    fileName = baseName + suffix + "." + ext
-                }
-            }
-
-            let url = directory.appendingPathComponent(fileName)
-            if !fm.fileExists(atPath: url.path) {
-                return url
-            }
-            attempt += 1
-        }
+        WorkflowFilenameLogic.uniqueURL(
+            forProposedName: name,
+            in: directory,
+            fileExists: { FileManager.default.fileExists(atPath: $0) }
+        )
     }
 
     // MARK: - Note handling
@@ -342,9 +307,9 @@ final class ScreenshotWorkflowController {
             case .saveOnly:
                 break
             case .copyAndSave:
-                clipboardService.writeImage(finalImage)
+                clipboardService.copyFile(at: fileURL, useCache: false)
             case .copyAndDelete:
-                clipboardService.writeImage(finalImage)
+                clipboardService.copyImageAsFile(finalImage, fileName: fileURL.lastPathComponent)
                 deleteFileAndBackup()
             case .deleteOnly:
                 deleteFileAndBackup()
@@ -692,61 +657,9 @@ final class ScreenshotWorkflowController {
     private func wrapText(_ text: String,
                           maxWidth: CGFloat,
                           attributes: [NSAttributedString.Key: Any]) -> [String] {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [""] }
-
-        let words = trimmed
-            .split(whereSeparator: { $0.isWhitespace })
-            .map(String.init)
-        guard !words.isEmpty else { return [""] }
-
-        func measure(_ value: String) -> CGFloat {
+        WorkflowTextWrapLogic.wrapText(text, maxWidth: maxWidth) { value in
             (value as NSString).size(withAttributes: attributes).width
         }
-
-        var lines: [String] = []
-        var currentLine = ""
-
-        func splitLongWord(_ word: String) -> String {
-            var segment = ""
-            for char in word {
-                let candidate = segment + String(char)
-                if measure(candidate) <= maxWidth {
-                    segment = candidate
-                } else {
-                    if !segment.isEmpty {
-                        lines.append(segment)
-                    }
-                    segment = String(char)
-                }
-            }
-            return segment
-        }
-
-        for word in words {
-            let nextLine = currentLine.isEmpty ? word : "\(currentLine) \(word)"
-            if measure(nextLine) <= maxWidth {
-                currentLine = nextLine
-                continue
-            }
-
-            if !currentLine.isEmpty {
-                lines.append(currentLine)
-                currentLine = ""
-            }
-
-            if measure(word) <= maxWidth {
-                currentLine = word
-            } else {
-                currentLine = splitLongWord(word)
-            }
-        }
-
-        if !currentLine.isEmpty {
-            lines.append(currentLine)
-        }
-
-        return lines.isEmpty ? [""] : lines
     }
 
     private func jpegData(from image: NSImage, quality: Int) -> Data? {

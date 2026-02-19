@@ -12,18 +12,22 @@ final class ClipboardService {
     private let cacheDirectory: URL
     private let fileManager: FileManager
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, cacheDirectory: URL? = nil) {
         self.fileManager = fileManager
 
-        let base = fileManager.homeDirectoryForCurrentUser
-        self.cacheDirectory = base
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Caches", isDirectory: true)
-            .appendingPathComponent("screenshotapp", isDirectory: true)
-            .appendingPathComponent("clipboard", isDirectory: true)
+        if let cacheDirectory {
+            self.cacheDirectory = cacheDirectory
+        } else {
+            let base = fileManager.homeDirectoryForCurrentUser
+            self.cacheDirectory = base
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Caches", isDirectory: true)
+                .appendingPathComponent("screenshotapp", isDirectory: true)
+                .appendingPathComponent("clipboard", isDirectory: true)
+        }
 
         // Best-effort directory creation.
-        try? fileManager.createDirectory(at: cacheDirectory, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: self.cacheDirectory, withIntermediateDirectories: true)
     }
     
     /// Removes all cached files under `~/Library/Caches/screenshotapp/clipboard`.
@@ -99,6 +103,52 @@ final class ClipboardService {
         // Publish both the file URL and image data so both file-paste and
         // image-paste targets can consume the clipboard contents.
         pasteboard.writeObjects([sourceURL as NSURL, image])
+    }
+
+    /// Writes an in-memory image to the clipboard cache as a file and publishes
+    /// the cached file URL on the pasteboard. Used for "Copy+Delete" from the
+    /// editor where the edited image was never saved to disk.
+    func copyImageAsFile(_ image: NSImage, fileName: String) {
+        let cachedURL = uniqueCachedURL(for: fileName)
+
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff) else {
+            // Can't encode — fall back to image-only clipboard.
+            writeImage(image)
+            return
+        }
+
+        let ext = (fileName as NSString).pathExtension.lowercased()
+        let (fileType, properties): (NSBitmapImageRep.FileType, [NSBitmapImageRep.PropertyKey: Any]) = {
+            switch ext {
+            case "jpg", "jpeg":
+                return (.jpeg, [.compressionFactor: CGFloat(0.85)])
+            case "tif", "tiff":
+                return (.tiff, [:])
+            case "bmp":
+                return (.bmp, [:])
+            case "gif":
+                return (.gif, [:])
+            default:
+                return (.png, [:])
+            }
+        }()
+
+        guard let data = bitmap.representation(using: fileType, properties: properties) else {
+            writeImage(image)
+            return
+        }
+
+        do {
+            try data.write(to: cachedURL, options: .atomic)
+        } catch {
+            writeImage(image)
+            return
+        }
+
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects([cachedURL as NSURL, image])
     }
 
     // MARK: - Helpers
