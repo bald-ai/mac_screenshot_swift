@@ -662,16 +662,6 @@ final class ScreenshotWorkflowController {
         }
     }
 
-    private func jpegData(from image: NSImage, quality: Int) -> Data? {
-        // Kept for backwards-compat calls; prefer `encodedImageData(...)`.
-        let sourceImage = flattenedToEditorBackgroundIfNeeded(image, for: .jpeg)
-        guard let tiff = sourceImage.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
-        let clamped = max(10, min(100, quality))
-        let compression = CGFloat(clamped) / 100.0
-        return bitmap.representation(using: .jpeg, properties: [.compressionFactor: compression])
-    }
-
     private func encodedImageData(from image: NSImage, originalURL: URL, quality: Int) -> (data: Data, outputURL: URL)? {
         let ext = originalURL.pathExtension.lowercased()
 

@@ -5,14 +5,14 @@ import Foundation
 /// Note: this requires the user to allow the app to control Finder
 /// in System Settings > Privacy & Security > Automation.
 enum FinderSelectionService {
-    enum Selection {
+    enum Selection: Equatable {
         case none
         case multiple(count: Int)
         case single(url: URL)
     }
 
     /// Returns Finder selection state (none / multiple / single file URL).
-    static func selection() throws -> Selection {
+    static func selection(scriptRunner: (String) throws -> String = runAppleScriptReturningString) throws -> Selection {
         // Finder's `selection` is documented as "the selection in the frontmost Finder window".
         // Key detail: Desktop icon selection can still be returned by `get selection`, but
         // `count of selection` may misleadingly be 0. So we must NOT gate on `count`.
@@ -53,8 +53,8 @@ enum FinderSelectionService {
         end tell
         """
 
-        let raw1 = try runAppleScriptReturningString(scriptNoBringToFront)
-        let parsed1 = parseSelectionResult(raw1)
+        let raw1 = try scriptRunner(scriptNoBringToFront)
+        let parsed1 = FinderSelectionParser.parseSelectionResult(raw1)
         switch parsed1 {
         case .none:
             break
@@ -62,8 +62,8 @@ enum FinderSelectionService {
             return parsed1
         }
 
-        let raw2 = try runAppleScriptReturningString(scriptBringToFront)
-        let parsed2 = parseSelectionResult(raw2)
+        let raw2 = try scriptRunner(scriptBringToFront)
+        let parsed2 = FinderSelectionParser.parseSelectionResult(raw2)
         switch parsed2 {
         case .none:
             return .none
@@ -94,18 +94,10 @@ enum FinderSelectionService {
         return result.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
-    private static func urlFromPath(_ path: String) -> URL? {
-        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
+}
 
-        let url = URL(fileURLWithPath: trimmed)
-        if !FileManager.default.fileExists(atPath: url.path) {
-            return nil
-        }
-        return url
-    }
-
-    private static func parseSelectionResult(_ raw: String) -> Selection {
+enum FinderSelectionParser {
+    static func parseSelectionResult(_ raw: String, fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> FinderSelectionService.Selection {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if value.isEmpty || value == "NONE" {
             return .none
@@ -119,7 +111,7 @@ enum FinderSelectionService {
 
         if value.hasPrefix("ONE:") {
             let path = String(value.dropFirst("ONE:".count))
-            if let url = urlFromPath(path) {
+            if let url = urlFromPath(path, fileExists: fileExists) {
                 return .single(url: url)
             }
             return .none
@@ -127,5 +119,12 @@ enum FinderSelectionService {
 
         // Unexpected output; treat as none.
         return .none
+    }
+
+    private static func urlFromPath(_ path: String, fileExists: (String) -> Bool) -> URL? {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard fileExists(trimmed) else { return nil }
+        return URL(fileURLWithPath: trimmed)
     }
 }

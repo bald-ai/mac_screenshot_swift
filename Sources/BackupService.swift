@@ -10,17 +10,21 @@ final class BackupService {
     let backupsDirectory: URL
     private let fileManager: FileManager
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, backupsDirectory: URL? = nil) {
         self.fileManager = fileManager
 
-        let base = fileManager.homeDirectoryForCurrentUser
-        self.backupsDirectory = base
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Caches", isDirectory: true)
-            .appendingPathComponent("screenshotapp", isDirectory: true)
-            .appendingPathComponent("backups", isDirectory: true)
+        if let backupsDirectory {
+            self.backupsDirectory = backupsDirectory
+        } else {
+            let base = fileManager.homeDirectoryForCurrentUser
+            self.backupsDirectory = base
+                .appendingPathComponent("Library", isDirectory: true)
+                .appendingPathComponent("Caches", isDirectory: true)
+                .appendingPathComponent("screenshotapp", isDirectory: true)
+                .appendingPathComponent("backups", isDirectory: true)
+        }
 
-        try? fileManager.createDirectory(at: backupsDirectory, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: self.backupsDirectory, withIntermediateDirectories: true)
     }
     
     /// Removes all files under `~/Library/Caches/screenshotapp/backups`.

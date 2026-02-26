@@ -221,12 +221,6 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         needsDisplay = true
     }
 
-    /// Clear all annotations.
-    func clear() {
-        clearAll()
-    }
-
-    /// Kept for compatibility with EditorWindowController.
     func clearAll() {
         if items.isEmpty {
             _ = clearSelectionIfNeeded()
@@ -245,24 +239,6 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         needsDisplay = true
     }
 
-    func zoomIn() {
-        onKeyCommand?(.zoomIn)
-    }
-
-    func zoomOut() {
-        onKeyCommand?(.zoomOut)
-    }
-
-    func resetZoom() {
-        onKeyCommand?(.zoomReset)
-    }
-
-    /// Render the final composited image at the original resolution.
-    func renderFinalImage() -> NSImage {
-        compositeImage()
-    }
-
-    /// Kept for compatibility with EditorWindowController.
     func compositeImage() -> NSImage {
         renderCompositeImage(croppingTo: exportBounds())
     }

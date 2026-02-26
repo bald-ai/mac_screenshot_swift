@@ -5,22 +5,13 @@ final class TrayService {
     private let statusItem: NSStatusItem
     private var menu: NSMenu?
 
-    private let onScreenshotArea: () -> Void
-    private let onScreenshotFull: () -> Void
-    private let onReopenFinderSelection: () -> Void
     private let onShowSettings: () -> Void
     private let onQuit: () -> Void
 
     init(
-        onScreenshotArea: @escaping () -> Void,
-        onScreenshotFull: @escaping () -> Void,
-        onReopenFinderSelection: @escaping () -> Void,
         onShowSettings: @escaping () -> Void,
         onQuit: @escaping () -> Void
     ) {
-        self.onScreenshotArea = onScreenshotArea
-        self.onScreenshotFull = onScreenshotFull
-        self.onReopenFinderSelection = onReopenFinderSelection
         self.onShowSettings = onShowSettings
         self.onQuit = onQuit
 
@@ -88,18 +79,6 @@ final class TrayService {
         default:
             break
         }
-    }
-
-    @objc private func didSelectScreenshotArea() {
-        onScreenshotArea()
-    }
-
-    @objc private func didSelectScreenshotFull() {
-        onScreenshotFull()
-    }
-
-    @objc private func didSelectReopenFinderSelection() {
-        onReopenFinderSelection()
     }
 
     @objc private func didSelectSettings() {

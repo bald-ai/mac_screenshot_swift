@@ -26,15 +26,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotKeyService = HotKeyService()
 
         statusItemController = TrayService(
-            onScreenshotArea: { [weak self] in
-                self?.triggerAreaScreenshot()
-            },
-            onScreenshotFull: { [weak self] in
-                self?.triggerFullScreenshot()
-            },
-            onReopenFinderSelection: { [weak self] in
-                self?.triggerReopenFinderSelection()
-            },
             onShowSettings: { [weak self] in
                 self?.showSettings()
             },

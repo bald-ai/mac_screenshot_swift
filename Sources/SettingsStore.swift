@@ -10,11 +10,15 @@ final class SettingsStore {
     private let fileURL: URL
     private let fileManager: FileManager
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, fileURL: URL? = nil) {
         self.fileManager = fileManager
 
-        let home = fileManager.homeDirectoryForCurrentUser
-        self.fileURL = home.appendingPathComponent(".screenshot_app_settings.json", isDirectory: false)
+        if let fileURL {
+            self.fileURL = fileURL
+        } else {
+            let home = fileManager.homeDirectoryForCurrentUser
+            self.fileURL = home.appendingPathComponent(".screenshot_app_settings.json", isDirectory: false)
+        }
 
         self.settings = .default
     }
@@ -43,7 +47,7 @@ final class SettingsStore {
     }
 
     /// Saves the current settings to disk.
-    func save() {
+    private func save() {
         do {
             try persist(settings)
         } catch {

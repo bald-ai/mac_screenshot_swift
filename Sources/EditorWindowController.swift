@@ -423,25 +423,6 @@ final class EditorWindowController: NSWindowController {
         return button
     }
 
-    private func makeDivider() -> NSView {
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        container.widthAnchor.constraint(equalToConstant: 1).isActive = true
-
-        let divider = NSView()
-        divider.wantsLayer = true
-        divider.layer?.backgroundColor = NSColor.separatorColor.withAlphaComponent(0.9).cgColor
-        divider.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(divider)
-        NSLayoutConstraint.activate([
-            divider.widthAnchor.constraint(equalToConstant: 1),
-            divider.heightAnchor.constraint(equalToConstant: 18),
-            divider.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            divider.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-        ])
-        return container
-    }
-
     private func configureColorIndicator() {
         colorIndicatorButton.isBordered = false
         colorIndicatorButton.bezelStyle = .shadowlessSquare

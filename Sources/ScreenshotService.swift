@@ -2,18 +2,23 @@ import AppKit
 import ScreenCaptureKit
 import CoreGraphics
 
+protocol ScreenshotSoundPlaying {
+    func playCaptureSound()
+}
+
+extension ScreenshotSoundPlayer: ScreenshotSoundPlaying {}
+
 /// Handles screenshot capture, resizing, encoding and filename generation,
 /// and then kicks off the rename/note workflow.
 final class ScreenshotService: NSObject {
     private let settingsStore: SettingsStore
     private let backupService: BackupService
     private let clipboardService: ClipboardService
-    private let soundPlayer: ScreenshotSoundPlayer
+    private let soundPlayer: ScreenshotSoundPlaying
 
     private let fileManager: FileManager
     private let desktopDirectory: URL
 
-    private var selectionOverlay: SelectionOverlay?
     private var activeWorkflow: ScreenshotWorkflowController?
     private var isCaptureInProgress = false
     private var isSystemAreaCaptureInProgress = false
@@ -28,15 +33,21 @@ final class ScreenshotService: NSObject {
     init(settingsStore: SettingsStore,
          backupService: BackupService,
          clipboardService: ClipboardService,
-         fileManager: FileManager = .default) {
+         fileManager: FileManager = .default,
+         desktopDirectory: URL? = nil,
+         soundPlayer: ScreenshotSoundPlaying = ScreenshotSoundPlayer()) {
         self.settingsStore = settingsStore
         self.backupService = backupService
         self.clipboardService = clipboardService
-        self.soundPlayer = ScreenshotSoundPlayer()
+        self.soundPlayer = soundPlayer
         self.fileManager = fileManager
 
-        let home = fileManager.homeDirectoryForCurrentUser
-        self.desktopDirectory = home.appendingPathComponent("Desktop", isDirectory: true)
+        if let desktopDirectory {
+            self.desktopDirectory = desktopDirectory
+        } else {
+            let home = fileManager.homeDirectoryForCurrentUser
+            self.desktopDirectory = home.appendingPathComponent("Desktop", isDirectory: true)
+        }
 
         super.init()
     }
@@ -68,10 +79,6 @@ final class ScreenshotService: NSObject {
             return
         }
 
-        if selectionOverlay != nil {
-            selectionOverlay?.cancelSelection()
-            selectionOverlay = nil
-        }
         guard canStartNewCapture() else {
             return
         }
@@ -117,24 +124,7 @@ final class ScreenshotService: NSObject {
     /// Single shared "busy gate" for user commands.
     /// If true, other commands should be ignored to avoid wedging UI state.
     var isBusyForUserCommands: Bool {
-        isCaptureInProgress || isSystemAreaCaptureInProgress || activeWorkflow != nil || selectionOverlay != nil
-    }
-
-    /// Cancels the active workflow and clears the activeWorkflow reference.
-    /// This should be called when force-closing windows via IPC.
-    func cancelActiveWorkflow() {
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.cancelActiveWorkflow()
-            }
-            return
-        }
-
-        guard let workflow = activeWorkflow else {
-            return
-        }
-        workflow.cancel()
-        activeWorkflow = nil
+        isCaptureInProgress || isSystemAreaCaptureInProgress || activeWorkflow != nil
     }
 
     /// Saves an arbitrary image to the Desktop using the current settings
@@ -375,54 +365,19 @@ final class ScreenshotService: NSObject {
     // MARK: - Helpers
 
     private func resizedImageIfNeeded(_ image: NSImage, maxWidth: Int) -> NSImage {
-        guard maxWidth > 0 else { return image }
-
-        let originalSize = image.size
-        guard originalSize.width > CGFloat(maxWidth) else { return image }
-
-        let scale = CGFloat(maxWidth) / originalSize.width
-        let newSize = NSSize(width: CGFloat(maxWidth), height: originalSize.height * scale)
-
-        let newImage = NSImage(size: newSize)
-        newImage.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: newSize),
-                   from: NSRect(origin: .zero, size: originalSize),
-                   operation: .copy,
-                   fraction: 1.0)
-        newImage.unlockFocus()
-
-        return newImage
+        ScreenshotServiceCoreLogic.resizedImageIfNeeded(image, maxWidth: maxWidth)
     }
 
     private func jpegData(from image: NSImage, quality: Int) -> Data? {
-        guard let tiff = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
-        let clamped = max(10, min(100, quality))
-        let compression = CGFloat(clamped) / 100.0
-        return bitmap.representation(using: .jpeg, properties: [.compressionFactor: compression])
+        ScreenshotServiceCoreLogic.jpegData(from: image, quality: quality)
     }
 
     private func uniqueScreenshotURL(in directory: URL, baseName: String) -> URL {
-        let name = baseName.isEmpty ? "Screenshot" : baseName
-        var url = directory.appendingPathComponent(name).appendingPathExtension("jpg")
-        if !fileManager.fileExists(atPath: url.path) {
-            return url
-        }
-
-        var suffix = 2
-        while true {
-            let suffixedName = "\(name)_\(suffix)"
-            url = directory.appendingPathComponent(suffixedName).appendingPathExtension("jpg")
-            if !fileManager.fileExists(atPath: url.path) {
-                return url
-            }
-            suffix += 1
-        }
-    }
-
-    private func presentBusyAlert() {
-        presentAlert(title: "Finish current screenshot first",
-                     message: "Complete or cancel the current rename/note flow before taking another screenshot.")
+        ScreenshotServiceCoreLogic.uniqueScreenshotURL(
+            in: directory,
+            baseName: baseName,
+            fileExists: { [fileManager] path in fileManager.fileExists(atPath: path) }
+        )
     }
 
     private func presentError(title: String, message: String) {
@@ -448,47 +403,15 @@ final class ScreenshotService: NSObject {
 
     private func captureRects(rectInScreenPoints rect: CGRect,
                               screen: ScreenSnapshot) -> (pointRect: CGRect, pixelRect: CGRect)? {
-        let screenFrame = screen.frame
-        let scale = screen.scale
-
-        let localRectPoints = CGRect(
-            x: rect.origin.x - screenFrame.origin.x,
-            y: rect.origin.y - screenFrame.origin.y,
-            width: rect.size.width,
-            height: rect.size.height
+        ScreenshotServiceCoreLogic.captureRects(
+            rectInScreenPoints: rect,
+            screenFrame: screen.frame,
+            scale: screen.scale
         )
-
-        let pointBounds = CGRect(origin: .zero, size: screenFrame.size)
-        let flippedY = pointBounds.height - (localRectPoints.origin.y + localRectPoints.height)
-        let pointRectTopLeft = CGRect(
-            x: localRectPoints.origin.x,
-            y: flippedY,
-            width: localRectPoints.size.width,
-            height: localRectPoints.size.height
-        )
-        let clampedPoints = pointRectTopLeft.integral.intersection(pointBounds)
-
-        let pixelRect = CGRect(
-            x: clampedPoints.origin.x * scale,
-            y: clampedPoints.origin.y * scale,
-            width: clampedPoints.size.width * scale,
-            height: clampedPoints.size.height * scale
-        )
-
-
-        guard clampedPoints.width >= 1, clampedPoints.height >= 1 else { return nil }
-        guard pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
-
-        return (pointRect: clampedPoints, pixelRect: pixelRect.integral)
     }
 
     private func shouldFallbackToLegacy(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        if nsError.domain == NSOSStatusErrorDomain, nsError.code == -50 {
-            return true
-        }
-        let message = nsError.localizedDescription.lowercased()
-        return message.contains("invalid") && message.contains("parameter")
+        ScreenshotServiceCoreLogic.shouldFallbackToLegacy(error)
     }
 }
 
@@ -497,38 +420,9 @@ final class ScreenshotService: NSObject {
 // Swift 6 Sendable warnings for main-queue hops.
 extension ScreenshotService: @unchecked Sendable {}
 
-// MARK: - SelectionOverlayDelegate
-
-extension ScreenshotService: SelectionOverlayDelegate {
-    func selectionOverlay(_ overlay: SelectionOverlay, didFinishWith rectInScreenCoordinates: CGRect?, onScreen screen: NSScreen) {
-        if !Thread.isMainThread {
-            let rectCopy = rectInScreenCoordinates
-            let screenID = screen.displayID
-            DispatchQueue.main.async { [weak self] in
-                guard let self = self else { return }
-                let targetScreen = self.screenForDisplayID(screenID) ?? NSScreen.main ?? NSScreen.screens.first
-                guard let targetScreen = targetScreen else { return }
-                self.handleSelection(rect: rectCopy, on: targetScreen)
-            }
-            return
-        }
-
-        handleSelection(rect: rectInScreenCoordinates, on: screen)
-    }
-}
-
 // MARK: - NSScreen helpers
 
 private extension ScreenshotService {
-    func handleSelection(rect: CGRect?, on screen: NSScreen) {
-        selectionOverlay = nil
-        guard let rect = rect else {
-            // User cancelled; no file is created and no UI is shown.
-            return
-        }
-        captureRegion(in: rect, on: screen)
-    }
-
     func screenForDisplayID(_ displayID: CGDirectDisplayID?) -> NSScreen? {
         guard let displayID = displayID else { return nil }
         return NSScreen.screens.first(where: { $0.displayID == displayID })

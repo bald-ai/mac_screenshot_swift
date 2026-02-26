@@ -1,7 +1,7 @@
 import AppKit
 
 enum AppTheme {
-    static var forcedAppearance: NSAppearance {
+    private static var forcedAppearance: NSAppearance {
         NSAppearance(named: .darkAqua) ?? NSAppearance(named: .aqua) ?? NSAppearance()
     }
 

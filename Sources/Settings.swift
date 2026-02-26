@@ -90,20 +90,20 @@ extension Shortcuts {
     /// Reasonable, non-conflicting defaults.
     /// These can later be changed via the shortcut recorder UI.
     static let `default` = Shortcuts(
-        // Cmd + Shift + 4
+        // Ctrl + Shift + 4
         screenshotArea: Shortcut(
             keyCode: UInt32(kVK_ANSI_4),
-            modifierFlags: UInt32(cmdKey | shiftKey)
+            modifierFlags: UInt32(controlKey | shiftKey)
         ),
-        // Cmd + Shift + 3
+        // Ctrl + Shift + 3
         screenshotFull: Shortcut(
             keyCode: UInt32(kVK_ANSI_3),
-            modifierFlags: UInt32(cmdKey | shiftKey)
+            modifierFlags: UInt32(controlKey | shiftKey)
         ),
-        // Cmd + Shift + 2
+        // Ctrl + Shift + 2
         reopenFinderSelection: Shortcut(
             keyCode: UInt32(kVK_ANSI_2),
-            modifierFlags: UInt32(cmdKey | shiftKey)
+            modifierFlags: UInt32(controlKey | shiftKey)
         )
     )
 }
