@@ -730,9 +730,10 @@ final class EditorWindowController: NSWindowController {
         let imageSize = canvasView.baseImage.size
         guard imageSize.width > 0, imageSize.height > 0 else { return }
 
-        let scaleFactor = window.backingScaleFactor
-        let pointW = imageSize.width / scaleFactor
-        let pointH = imageSize.height / scaleFactor
+        let scaleFactor = max(window.backingScaleFactor, 1.0)
+        let pixelSize = imagePixelSize(canvasView.baseImage)
+        let pointW = pixelSize.width / scaleFactor
+        let pointH = pixelSize.height / scaleFactor
 
         let maxW: CGFloat = 1400.0
         let maxH: CGFloat = 900.0
@@ -759,16 +760,19 @@ final class EditorWindowController: NSWindowController {
         }
         if !fitScale.isFinite || fitScale <= 0 { fitScale = 1.0 }
 
-        baseScale = fitScale / scaleFactor
+        let pointToCanvasScaleW = pointW / imageSize.width
+        let pointToCanvasScaleH = pointH / imageSize.height
+        let pointToCanvasScale = min(pointToCanvasScaleW, pointToCanvasScaleH)
+        baseScale = fitScale * pointToCanvasScale
 
-	        let contentW = min(max(pointW * fitScale + totalPadding + chromeW, minW), maxW)
-	        let contentH = min(max(pointH * fitScale + totalPadding + chromeH, minH), maxH)
+        let contentW = min(max(pointW * fitScale + totalPadding + chromeW, minW), maxW)
+        let contentH = min(max(pointH * fitScale + totalPadding + chromeH, minH), maxH)
 
-	        window.setContentSize(NSSize(width: contentW, height: contentH))
+        window.setContentSize(NSSize(width: contentW, height: contentH))
 
-	        // If the window is bigger than the natural content (usually due to minW/minH),
-	        // auto-zoom small captures so they use most of the available canvas.
-	        defaultUserZoomFactor = 1.0
+        // If the window is bigger than the natural content (usually due to minW/minH),
+        // auto-zoom small captures so they use most of the available canvas.
+        defaultUserZoomFactor = 1.0
         let unclampedW = pointW * fitScale + totalPadding + chromeW
         let unclampedH = pointH * fitScale + totalPadding + chromeH
         let hasExtraSlack = (contentW > unclampedW + 1.0) || (contentH > unclampedH + 1.0)
@@ -793,6 +797,22 @@ final class EditorWindowController: NSWindowController {
         userZoomFactor = defaultUserZoomFactor
         canvasView.setInitialTextZoomFactor(defaultUserZoomFactor)
         applyZoom()
+    }
+
+    private func imagePixelSize(_ image: NSImage) -> NSSize {
+        if let bestBitmap = image.representations
+            .compactMap({ $0 as? NSBitmapImageRep })
+            .max(by: { lhs, rhs in lhs.pixelsWide * lhs.pixelsHigh < rhs.pixelsWide * rhs.pixelsHigh }),
+           bestBitmap.pixelsWide > 0,
+           bestBitmap.pixelsHigh > 0 {
+            return NSSize(width: CGFloat(bestBitmap.pixelsWide), height: CGFloat(bestBitmap.pixelsHigh))
+        }
+
+        if let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            return NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
+        }
+
+        return image.size
     }
 
     private func calculateEditorPadding(imgWidth: CGFloat, imgHeight: CGFloat, wasResized: Bool) -> CGFloat {

@@ -5,6 +5,11 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 - Changed default global shortcuts to `Ctrl+Shift+4`, `Ctrl+Shift+3`, and `Ctrl+Shift+2` to reduce conflicts with macOS screenshot defaults.
+- Full-screen capture moved from ScreenCaptureKit to `/usr/sbin/screencapture`.
+- Legacy `CGDisplayCreateImage` fallback removed.
+- Full-screen capture no longer includes the mouse cursor.
+- Full-screen now targets the menu-bar monitor (`-m`).
+- App now uses one capture backend for both area and full-screen capture.
 
 ## [0.1.0] - 2026-02-16
 

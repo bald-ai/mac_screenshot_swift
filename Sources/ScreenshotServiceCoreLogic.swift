@@ -1,6 +1,12 @@
 import AppKit
 import Foundation
 
+enum TemporaryImageResult {
+    case loaded(NSImage)
+    case missing
+    case unreadable
+}
+
 enum ScreenshotServiceCoreLogic {
     static func resizedImageIfNeeded(_ image: NSImage, maxWidth: Int) -> NSImage {
         guard maxWidth > 0 else { return image }
@@ -48,45 +54,15 @@ enum ScreenshotServiceCoreLogic {
         }
     }
 
-    static func captureRects(rectInScreenPoints rect: CGRect,
-                             screenFrame: CGRect,
-                             scale: CGFloat) -> (pointRect: CGRect, pixelRect: CGRect)? {
-        let localRectPoints = CGRect(
-            x: rect.origin.x - screenFrame.origin.x,
-            y: rect.origin.y - screenFrame.origin.y,
-            width: rect.size.width,
-            height: rect.size.height
-        )
-
-        let pointBounds = CGRect(origin: .zero, size: screenFrame.size)
-        let flippedY = pointBounds.height - (localRectPoints.origin.y + localRectPoints.height)
-        let pointRectTopLeft = CGRect(
-            x: localRectPoints.origin.x,
-            y: flippedY,
-            width: localRectPoints.size.width,
-            height: localRectPoints.size.height
-        )
-        let clampedPoints = pointRectTopLeft.integral.intersection(pointBounds)
-
-        let pixelRect = CGRect(
-            x: clampedPoints.origin.x * scale,
-            y: clampedPoints.origin.y * scale,
-            width: clampedPoints.size.width * scale,
-            height: clampedPoints.size.height * scale
-        )
-
-        guard clampedPoints.width >= 1, clampedPoints.height >= 1 else { return nil }
-        guard pixelRect.width >= 1, pixelRect.height >= 1 else { return nil }
-
-        return (pointRect: clampedPoints, pixelRect: pixelRect.integral)
-    }
-
-    static func shouldFallbackToLegacy(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        if nsError.domain == NSOSStatusErrorDomain, nsError.code == -50 {
-            return true
+    static func loadTemporaryImage(at url: URL,
+                                   fileExists: (String) -> Bool,
+                                   loadImage: (URL) -> NSImage?) -> TemporaryImageResult {
+        guard fileExists(url.path) else {
+            return .missing
         }
-        let message = nsError.localizedDescription.lowercased()
-        return message.contains("invalid") && message.contains("parameter")
+        guard let image = loadImage(url) else {
+            return .unreadable
+        }
+        return .loaded(image)
     }
 }

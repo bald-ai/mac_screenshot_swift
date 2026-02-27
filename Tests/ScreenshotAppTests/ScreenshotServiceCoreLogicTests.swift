@@ -30,37 +30,46 @@ final class ScreenshotServiceCoreLogicTests: XCTestCase {
         XCTAssertEqual(url.lastPathComponent, "Screenshot_3.jpg")
     }
 
-    func testCaptureRectsClampsAndConvertsToPixels() {
-        let screen = CGRect(x: 100, y: 100, width: 200, height: 100)
-        let selection = CGRect(x: 120, y: 120, width: 50, height: 30)
-        let output = ScreenshotServiceCoreLogic.captureRects(rectInScreenPoints: selection,
-                                                             screenFrame: screen,
-                                                             scale: 2.0)
-        guard let output else {
-            return XCTFail("Expected capture rects")
+    func testLoadTemporaryImageReturnsMissingWhenFileIsNotPresent() {
+        let url = URL(fileURLWithPath: "/tmp/missing-image.png")
+        let result = ScreenshotServiceCoreLogic.loadTemporaryImage(
+            at: url,
+            fileExists: { _ in false },
+            loadImage: { _ in
+                XCTFail("loadImage should not be called when file is missing")
+                return nil
+            }
+        )
+        guard case .missing = result else {
+            return XCTFail("Expected .missing result")
         }
-        XCTAssertEqual(output.pointRect.width, 50, accuracy: 0.01)
-        XCTAssertEqual(output.pointRect.height, 30, accuracy: 0.01)
-        XCTAssertEqual(output.pixelRect.width, 100, accuracy: 0.01)
-        XCTAssertEqual(output.pixelRect.height, 60, accuracy: 0.01)
     }
 
-    func testCaptureRectsReturnsNilForTooSmallArea() {
-        let screen = CGRect(x: 0, y: 0, width: 200, height: 100)
-        let selection = CGRect(x: 500, y: 500, width: 20, height: 20)
-        XCTAssertNil(ScreenshotServiceCoreLogic.captureRects(rectInScreenPoints: selection,
-                                                             screenFrame: screen,
-                                                             scale: 1.0))
+    func testLoadTemporaryImageReturnsUnreadableWhenLoaderFails() {
+        let url = URL(fileURLWithPath: "/tmp/unreadable-image.png")
+        let result = ScreenshotServiceCoreLogic.loadTemporaryImage(
+            at: url,
+            fileExists: { _ in true },
+            loadImage: { _ in nil }
+        )
+        guard case .unreadable = result else {
+            return XCTFail("Expected .unreadable result")
+        }
     }
 
-    func testShouldFallbackToLegacyForKnownErrorPatterns() {
-        let osStatus = NSError(domain: NSOSStatusErrorDomain, code: -50)
-        XCTAssertTrue(ScreenshotServiceCoreLogic.shouldFallbackToLegacy(osStatus))
+    func testLoadTemporaryImageReturnsLoadedWhenImageCanBeRead() {
+        let expected = TestSupport.solidImage(width: 32, height: 16)
+        let url = URL(fileURLWithPath: "/tmp/readable-image.png")
+        let result = ScreenshotServiceCoreLogic.loadTemporaryImage(
+            at: url,
+            fileExists: { _ in true },
+            loadImage: { _ in expected }
+        )
 
-        let invalidParam = NSError(domain: "any", code: 123, userInfo: [NSLocalizedDescriptionKey: "Invalid parameter passed"])
-        XCTAssertTrue(ScreenshotServiceCoreLogic.shouldFallbackToLegacy(invalidParam))
-
-        let different = NSError(domain: "any", code: 123, userInfo: [NSLocalizedDescriptionKey: "Something else"])
-        XCTAssertFalse(ScreenshotServiceCoreLogic.shouldFallbackToLegacy(different))
+        guard case .loaded(let image) = result else {
+            return XCTFail("Expected .loaded result")
+        }
+        XCTAssertEqual(image.size.width, expected.size.width, accuracy: 0.01)
+        XCTAssertEqual(image.size.height, expected.size.height, accuracy: 0.01)
     }
 }
