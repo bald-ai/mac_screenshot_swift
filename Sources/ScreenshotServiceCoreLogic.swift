@@ -16,16 +16,13 @@ enum ScreenshotServiceCoreLogic {
 
         let scale = CGFloat(maxWidth) / originalSize.width
         let newSize = NSSize(width: CGFloat(maxWidth), height: originalSize.height * scale)
-
-        let newImage = NSImage(size: newSize)
-        newImage.lockFocus()
-        image.draw(in: NSRect(origin: .zero, size: newSize),
-                   from: NSRect(origin: .zero, size: originalSize),
-                   operation: .copy,
-                   fraction: 1.0)
-        newImage.unlockFocus()
-
-        return newImage
+        return NSImage(size: newSize, flipped: false) { rect in
+            image.draw(in: rect,
+                       from: NSRect(origin: .zero, size: originalSize),
+                       operation: .copy,
+                       fraction: 1.0)
+            return true
+        }
     }
 
     static func jpegData(from image: NSImage, quality: Int) -> Data? {
@@ -38,20 +35,11 @@ enum ScreenshotServiceCoreLogic {
 
     static func uniqueScreenshotURL(in directory: URL, baseName: String, fileExists: (String) -> Bool) -> URL {
         let name = baseName.isEmpty ? "Screenshot" : baseName
-        var url = directory.appendingPathComponent(name).appendingPathExtension("jpg")
-        if !fileExists(url.path) {
-            return url
-        }
-
-        var suffix = 2
-        while true {
-            let suffixedName = "\(name)_\(suffix)"
-            url = directory.appendingPathComponent(suffixedName).appendingPathExtension("jpg")
-            if !fileExists(url.path) {
-                return url
-            }
-            suffix += 1
-        }
+        return UniqueFileURLLogic.uniqueURL(
+            forProposedName: "\(name).jpg",
+            in: directory,
+            fileExists: fileExists
+        )
     }
 
     static func loadTemporaryImage(at url: URL,

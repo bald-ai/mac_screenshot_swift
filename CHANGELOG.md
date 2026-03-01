@@ -10,6 +10,10 @@ All notable changes to this project are documented in this file.
 - Full-screen capture no longer includes the mouse cursor.
 - Full-screen now targets the menu-bar monitor (`-m`).
 - App now uses one capture backend for both area and full-screen capture.
+- Refactored workflow/utilities for maintainability: shared key-command parsing, shared unique filename generation, shared alert presentation, shared directory purge logic, and extracted note text preparation.
+- Reduced duplicated completion branching in workflow/editor paths and removed dead UI branching/checks in tray/panel components.
+- Improved resilience and observability by adding error logging in previously silent failure paths (`BackupService`, `SettingsStore`, `ScreenshotSoundPlayer`).
+- Optimized filename template formatting with a thread-safe formatter cache and added selective dirty-rect drawing in the editor canvas.
 
 ## [0.1.0] - 2026-02-16
 

@@ -30,16 +30,7 @@ final class BackupService {
     /// Removes all files under `~/Library/Caches/screenshotapp/backups`.
     /// Mirrors the legacy app behavior to avoid orphaned backups across dev sessions.
     func purgeAllBackups() {
-        do {
-            let urls = try fileManager.contentsOfDirectory(at: backupsDirectory,
-                                                          includingPropertiesForKeys: nil,
-                                                          options: [.skipsHiddenFiles])
-            for url in urls {
-                try? fileManager.removeItem(at: url)
-            }
-        } catch {
-            // Best-effort.
-        }
+        DirectoryPurgeLogic.purgeContents(of: backupsDirectory, fileManager: fileManager, label: "backup cache")
     }
 
     /// Returns the backup URL corresponding to a given original screenshot
@@ -52,11 +43,11 @@ final class BackupService {
     func createBackup(forOriginalURL url: URL) {
         let backupURL = backupURL(forOriginalURL: url)
         do {
-            if fileManager.fileExists(atPath: backupURL.path) {
-                try fileManager.removeItem(at: backupURL)
-            }
+            // Best-effort replacement to avoid fileExists/remove TOCTOU windows.
+            try? fileManager.removeItem(at: backupURL)
             try fileManager.copyItem(at: url, to: backupURL)
         } catch {
+            AppLogger.error("Failed creating backup for \(url.path)", error: error)
         }
     }
 
@@ -65,11 +56,12 @@ final class BackupService {
     /// copy+delete).
     func removeBackup(forOriginalURL url: URL) {
         let backupURL = backupURL(forOriginalURL: url)
-        if fileManager.fileExists(atPath: backupURL.path) {
-            do {
-                try fileManager.removeItem(at: backupURL)
-            } catch {
-            }
+        do {
+            try fileManager.removeItem(at: backupURL)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile {
+            return
+        } catch {
+            AppLogger.error("Failed removing backup for \(url.path)", error: error)
         }
     }
 }

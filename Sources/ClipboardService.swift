@@ -33,16 +33,7 @@ final class ClipboardService {
     /// Removes all cached files under `~/Library/Caches/screenshotapp/clipboard`.
     /// This keeps paste behavior correct while preventing unbounded growth during frequent use.
     func purgeAllCachedFiles() {
-        do {
-            let urls = try fileManager.contentsOfDirectory(at: cacheDirectory,
-                                                          includingPropertiesForKeys: nil,
-                                                          options: [.skipsHiddenFiles])
-            for url in urls {
-                try? fileManager.removeItem(at: url)
-            }
-        } catch {
-            // Best-effort.
-        }
+        DirectoryPurgeLogic.purgeContents(of: cacheDirectory, fileManager: fileManager, label: "clipboard cache")
     }
 
     /// Places an image on the general pasteboard. Used by the editor's Copy
@@ -74,13 +65,12 @@ final class ClipboardService {
         if useCache {
             let cachedURL = uniqueCachedURL(for: url.lastPathComponent)
             do {
-                // Replace any existing cached file with the same name.
-                if fileManager.fileExists(atPath: cachedURL.path) {
-                    try fileManager.removeItem(at: cachedURL)
-                }
+                // Best-effort replacement to avoid fileExists/remove TOCTOU windows.
+                try? fileManager.removeItem(at: cachedURL)
                 try fileManager.copyItem(at: url, to: cachedURL)
                 sourceURL = cachedURL
             } catch {
+                AppLogger.error("Failed to cache clipboard file: \(url.path)", error: error)
                 // Fall back to using the original URL.
                 sourceURL = url
             }
@@ -154,29 +144,10 @@ final class ClipboardService {
     // MARK: - Helpers
 
     private func uniqueCachedURL(for fileName: String) -> URL {
-        let baseName = (fileName as NSString).deletingPathExtension
-        let ext = (fileName as NSString).pathExtension
-
-        var attempt = 1
-        while true {
-            let candidateName: String
-            if attempt == 1 {
-                candidateName = fileName
-            } else {
-                let suffix = "_\(attempt)"
-                if ext.isEmpty {
-                    candidateName = baseName + suffix
-                } else {
-                    candidateName = baseName + suffix + "." + ext
-                }
-            }
-
-            let url = cacheDirectory.appendingPathComponent(candidateName)
-            if !fileManager.fileExists(atPath: url.path) {
-                return url
-            }
-
-            attempt += 1
-        }
+        UniqueFileURLLogic.uniqueURL(
+            forProposedName: fileName,
+            in: cacheDirectory,
+            fileExists: { [fileManager] path in fileManager.fileExists(atPath: path) }
+        )
     }
 }

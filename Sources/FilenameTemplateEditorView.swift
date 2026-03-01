@@ -214,6 +214,10 @@ private final class BlockCellView: NSView, NSTextFieldDelegate {
 
     private var editField: NSTextField?
     private var datePickerSegment: NSSegmentedControl?
+    private enum EditFieldRole: Int {
+        case staticText = 1
+        case format = 2
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -271,6 +275,7 @@ private final class BlockCellView: NSView, NSTextFieldDelegate {
         case .staticText:
             let field = NSTextField(string: block.text ?? "")
             field.placeholderString = "Static text"
+            field.tag = EditFieldRole.staticText.rawValue
             field.delegate = self
             field.translatesAutoresizingMaskIntoConstraints = false
             editorContainer.addSubview(field)
@@ -302,6 +307,7 @@ private final class BlockCellView: NSView, NSTextFieldDelegate {
         case .time:
             let field = NSTextField(string: block.format ?? "HH.mm.ss")
             field.placeholderString = "HH.mm.ss"
+            field.tag = EditFieldRole.format.rawValue
             field.delegate = self
             field.translatesAutoresizingMaskIntoConstraints = false
             editorContainer.addSubview(field)
@@ -337,7 +343,7 @@ private final class BlockCellView: NSView, NSTextFieldDelegate {
 
     func controlTextDidChange(_ obj: Notification) {
         guard let field = obj.object as? NSTextField, field === editField else { return }
-        if field.placeholderString == "Static text" {
+        if field.tag == EditFieldRole.staticText.rawValue {
             onTextChanged?(field.stringValue)
         } else {
             onFormatChanged?(field.stringValue)

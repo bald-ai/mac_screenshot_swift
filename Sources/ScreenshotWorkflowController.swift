@@ -270,70 +270,43 @@ final class ScreenshotWorkflowController {
         presentNotePanel(existingText: pendingNoteText)
     }
 
-    private func handleEditorCompletion(editedImage: NSImage?, action: FinalAction) {
+    func handleEditorCompletion(editedImage: NSImage?, action: FinalAction) {
         editorController?.dismissWithoutCompletion()
         editorController = nil
         pendingEditedImage = nil
 
+        var finalImage: NSImage?
         if let image = editedImage {
             // Editor returns a flattened image. If there's a pending note, burn it once
             // right before saving/copying so it never stacks/duplicates.
-            let trimmedNote = pendingNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let finalImage: NSImage
-            if !trimmedNote.isEmpty, let noted = notedImage(base: image, rawNote: trimmedNote) {
+            if let preparedNote = prepareNoteText(pendingNoteText),
+               let noted = burn(note: preparedNote.rendered, into: image) {
                 finalImage = noted
-                burnedNoteText = String(trimmedNote.prefix(1000))
+                burnedNoteText = preparedNote.identity
             } else {
                 finalImage = image
                 burnedNoteText = ""
             }
-
-            switch action {
-            case .saveOnly, .copyAndSave:
-                // Save the final (possibly noted) image to disk.
-                guard saveEditedImage(finalImage) else { return }
-                // Workflow finished normally: remove backup if one was created.
-                removeBackupIfNeeded()
-            case .copyAndDelete, .deleteOnly:
-                break
-            case .closeOnly:
-                // Cancel/close: do not write to disk; restore original if needed.
-                if restoreOriginalFromBackupIfAvailable() {
-                    removeBackupIfNeeded()
-                }
-            }
-
-            switch action {
-            case .saveOnly:
-                break
-            case .copyAndSave:
-                clipboardService.copyFile(at: fileURL, useCache: false)
-            case .copyAndDelete:
-                clipboardService.copyImageAsFile(finalImage, fileName: fileURL.lastPathComponent)
-                deleteFileAndBackup()
-            case .deleteOnly:
-                deleteFileAndBackup()
-            case .closeOnly:
-                break
-            }
-        } else {
-            switch action {
-            case .saveOnly:
-                break
-            case .copyAndSave:
-                clipboardService.copyFile(at: fileURL, useCache: false)
-            case .copyAndDelete:
-                clipboardService.copyFile(at: fileURL, useCache: true)
-                deleteFileAndBackup()
-            case .deleteOnly:
-                deleteFileAndBackup()
-            case .closeOnly:
-                if restoreOriginalFromBackupIfAvailable() {
-                    removeBackupIfNeeded()
-                }
-            }
         }
 
+        if action == .closeOnly {
+            // Cancel/close: do not write to disk; restore original if needed.
+            if restoreOriginalFromBackupIfAvailable() {
+                removeBackupIfNeeded()
+            }
+            onFinish?()
+            return
+        }
+
+        if let finalImage,
+           (action == .saveOnly || action == .copyAndSave) {
+            // Save the final (possibly noted) image to disk.
+            guard saveEditedImage(finalImage) else { return }
+            // Workflow finished normally: remove backup if one was created.
+            removeBackupIfNeeded()
+        }
+
+        guard performFinalActionEffects(action, copyAndDeleteImage: finalImage) else { return }
         onFinish?()
     }
 
@@ -387,67 +360,35 @@ final class ScreenshotWorkflowController {
             return pendingEditedImage
         }()
 
+        let imageToPersist: NSImage?
         if let pendingImage {
             var finalImage = pendingImage
-            let trimmedNote = (note ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmedNote.isEmpty {
-                guard let noted = notedImage(base: finalImage, rawNote: trimmedNote) else {
+            if let note,
+               let preparedNote = prepareNoteText(note) {
+                guard let noted = burn(note: preparedNote.rendered, into: finalImage) else {
                     presentError(title: "Failed to apply note", message: "Could not render the note text.")
                     return
                 }
                 finalImage = noted
-                burnedNoteText = String(trimmedNote.prefix(1000))
+                burnedNoteText = preparedNote.identity
             } else {
                 burnedNoteText = ""
             }
-
-            switch action {
-            case .saveOnly:
-                guard saveEditedImage(finalImage) else { return }
-                removeBackupIfNeeded()
-            case .copyAndSave:
-                guard saveEditedImage(finalImage) else { return }
-                clipboardService.copyFile(at: fileURL, useCache: false)
-                removeBackupIfNeeded()
-            case .copyAndDelete:
-                guard saveEditedImage(finalImage) else { return }
-                clipboardService.copyFile(at: fileURL, useCache: true)
-                deleteFileAndBackup()
-            case .deleteOnly:
-                deleteFileAndBackup()
-            case .closeOnly:
-                closeWorkflowWithoutDeleting()
-                return
+            imageToPersist = finalImage
+        } else {
+            imageToPersist = nil
+            if let note {
+                guard applyNoteIfNeeded(note) else { return }
             }
-
-            pendingEditedImage = nil
-            burnedNoteText = ""
-            onFinish?()
-            return
         }
 
-        if let note = note {
-            guard applyNoteIfNeeded(note) else { return }
-        }
-
-        switch action {
-        case .saveOnly:
-            // Mirror legacy behavior: if we created a backup during note/editor work,
-            // drop it on successful completion to avoid orphaned backups.
+        guard persistImageIfNeeded(imageToPersist, for: action) else { return }
+        guard performFinalActionEffects(action, copyAndDeleteImage: nil) else { return }
+        if action == .saveOnly || action == .copyAndSave {
             removeBackupIfNeeded()
-        case .copyAndSave:
-            clipboardService.copyFile(at: fileURL, useCache: false)
-            removeBackupIfNeeded()
-        case .copyAndDelete:
-            clipboardService.copyFile(at: fileURL, useCache: true)
-            deleteFileAndBackup()
-        case .deleteOnly:
-            deleteFileAndBackup()
-        case .closeOnly:
-            closeWorkflowWithoutDeleting()
-            return
         }
 
+        pendingEditedImage = nil
         burnedNoteText = ""
         onFinish?()
     }
@@ -466,36 +407,25 @@ final class ScreenshotWorkflowController {
 
     @discardableResult
     private func applyNoteIfNeeded(_ rawText: String) -> Bool {
-        var text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return true }
+        guard let preparedNote = prepareNoteText(rawText) else { return true }
 
-        if text == burnedNoteText {
+        if preparedNote.identity == burnedNoteText {
             return true
         }
 
         ensureBackupExists()
 
-        text = String(text.prefix(1000))
-        let rawNote = text
-
-        let settings = settingsStore.settings
-        if settings.notePrefixEnabled {
-            let prefix = settings.notePrefix.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !prefix.isEmpty {
-                text = prefix + " " + text
-            }
-        }
-
         guard let image = NSImage(contentsOf: fileURL) else {
             presentError(title: "Failed to apply note", message: "Could not read the screenshot image.")
             return false
         }
-        guard let updated = burn(note: text, into: image) else {
+        guard let updated = burn(note: preparedNote.rendered, into: image) else {
             presentError(title: "Failed to apply note", message: "Could not render the note text.")
             return false
         }
 
-        guard let (data, outputURL) = encodedImageData(from: updated, originalURL: fileURL, quality: settings.quality) else {
+        let quality = settingsStore.settings.quality
+        guard let (data, outputURL) = encodedImageData(from: updated, originalURL: fileURL, quality: quality) else {
             presentError(title: "Failed to apply note", message: "Could not encode the noted image.")
             return false
         }
@@ -506,24 +436,59 @@ final class ScreenshotWorkflowController {
             presentError(title: "Failed to write note", message: error.localizedDescription)
             return false
         }
-        burnedNoteText = rawNote
+        burnedNoteText = preparedNote.identity
         return true
     }
 
-    private func notedImage(base image: NSImage, rawNote: String) -> NSImage? {
-        var text = rawNote.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return nil }
-        text = String(text.prefix(1000))
+    private func prepareNoteText(_ rawText: String) -> (identity: String, rendered: String)? {
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let identity = String(trimmed.prefix(1000))
+        var rendered = identity
 
         let settings = settingsStore.settings
         if settings.notePrefixEnabled {
             let prefix = settings.notePrefix.trimmingCharacters(in: .whitespacesAndNewlines)
             if !prefix.isEmpty {
-                text = prefix + " " + text
+                rendered = prefix + " " + identity
             }
         }
 
-        return burn(note: text, into: image)
+        return (identity, rendered)
+    }
+
+    private func persistImageIfNeeded(_ image: NSImage?, for action: FinalAction) -> Bool {
+        guard let image else { return true }
+
+        switch action {
+        case .saveOnly, .copyAndSave, .copyAndDelete:
+            return saveEditedImage(image)
+        case .deleteOnly, .closeOnly:
+            return true
+        }
+    }
+
+    private func performFinalActionEffects(_ action: FinalAction, copyAndDeleteImage: NSImage?) -> Bool {
+        switch action {
+        case .saveOnly:
+            break
+        case .copyAndSave:
+            clipboardService.copyFile(at: fileURL, useCache: false)
+        case .copyAndDelete:
+            if let copyAndDeleteImage {
+                clipboardService.copyImageAsFile(copyAndDeleteImage, fileName: fileURL.lastPathComponent)
+            } else {
+                clipboardService.copyFile(at: fileURL, useCache: true)
+            }
+            deleteFileAndBackup()
+        case .deleteOnly:
+            deleteFileAndBackup()
+        case .closeOnly:
+            closeWorkflowWithoutDeleting()
+            return false
+        }
+        return true
     }
 
     private func restoreOriginalFromBackupIfAvailable() -> Bool {
@@ -718,19 +683,18 @@ final class ScreenshotWorkflowController {
         guard fileType == .jpeg else { return image }
 
         let size = image.size
-        let flattened = NSImage(size: size)
-        flattened.lockFocusFlipped(true)
-        // JPEG can't keep transparency. Use a neutral non-themed background color.
-        NSColor(calibratedWhite: 0.96, alpha: 1.0).setFill()
-        NSRect(origin: .zero, size: size).fill()
-        image.draw(in: NSRect(origin: .zero, size: size),
-                   from: .zero,
-                   operation: .sourceOver,
-                   fraction: 1.0,
-                   respectFlipped: true,
-                   hints: nil)
-        flattened.unlockFocus()
-        return flattened
+        return NSImage(size: size, flipped: true) { rect in
+            // JPEG can't keep transparency. Use a neutral non-themed background color.
+            NSColor(calibratedWhite: 0.96, alpha: 1.0).setFill()
+            rect.fill()
+            image.draw(in: rect,
+                       from: .zero,
+                       operation: .sourceOver,
+                       fraction: 1.0,
+                       respectFlipped: true,
+                       hints: nil)
+            return true
+        }
     }
 
     private func writeEncodedImageData(_ data: Data, to outputURL: URL, originalURL: URL) throws {
@@ -749,12 +713,7 @@ final class ScreenshotWorkflowController {
     // MARK: - Errors
 
     private func presentError(title: String, message: String) {
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = title
-        alert.informativeText = message
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
+        AlertPresenter.presentWarning(title: title, message: message)
     }
 }
 
@@ -765,15 +724,10 @@ final class FloatingInputPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 
     init(contentRect: NSRect) {
-        // Ensure we're on main thread for window creation
-        if !Thread.isMainThread {
-        }
-        
-        // Try creating the panel - if this crashes, it's likely a macOS window server issue
         super.init(contentRect: contentRect,
                    styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered,
-                   defer: true)  // Changed to defer: true for safety
+                   defer: true)
 
         isFloatingPanel = true
         level = .statusBar
@@ -836,6 +790,35 @@ enum KeyCommand {
     case shiftTab
 }
 
+private func interpretKeyCommand(from event: NSEvent) -> KeyCommand? {
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+    switch event.keyCode {
+    case 36: // Return
+        if flags.contains(.command) {
+            return .commandEnter
+        } else {
+            return .enter
+        }
+    case 51: // Delete / Backspace
+        if flags.contains(.command) {
+            return .commandBackspace
+        }
+    case 53: // Escape
+        return .escape
+    case 48: // Tab
+        if flags.contains(.shift) {
+            return .shiftTab
+        } else {
+            return .tab
+        }
+    default:
+        break
+    }
+
+    return nil
+}
+
 final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
     var keyCommandHandler: ((KeyCommand) -> Void)?
 
@@ -854,7 +837,7 @@ final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
-        if let command = interpret(event: event) {
+        if let command = interpretKeyCommand(from: event) {
             keyCommandHandler?(command)
         } else {
             super.keyDown(with: event)
@@ -863,7 +846,7 @@ final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if let event = NSApp.currentEvent,
-           let command = interpret(event: event) {
+           let command = interpretKeyCommand(from: event) {
             keyCommandHandler?(command)
             return true
         }
@@ -886,73 +869,16 @@ final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
         }
     }
 
-    private func interpret(event: NSEvent) -> KeyCommand? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
-        switch event.keyCode {
-        case 36: // Return
-            if flags.contains(.command) {
-                return .commandEnter
-            } else {
-                return .enter
-            }
-        case 51: // Delete / Backspace
-            if flags.contains(.command) {
-                return .commandBackspace
-            }
-        case 53: // Escape
-            return .escape
-        case 48: // Tab
-            if flags.contains(.shift) {
-                return .shiftTab
-            } else {
-                return .tab
-            }
-        default:
-            break
-        }
-
-        return nil
-    }
 }
 
 final class CommandAwareTextView: NSTextView {
     var keyCommandHandler: ((KeyCommand) -> Void)?
 
     override func keyDown(with event: NSEvent) {
-        if let command = interpret(event: event) {
+        if let command = interpretKeyCommand(from: event) {
             keyCommandHandler?(command)
         } else {
             super.keyDown(with: event)
         }
-    }
-
-    private func interpret(event: NSEvent) -> KeyCommand? {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
-        switch event.keyCode {
-        case 36: // Return
-            if flags.contains(.command) {
-                return .commandEnter
-            } else {
-                return .enter
-            }
-        case 51: // Delete / Backspace
-            if flags.contains(.command) {
-                return .commandBackspace
-            }
-        case 53: // Escape
-            return .escape
-        case 48: // Tab
-            if flags.contains(.shift) {
-                return .shiftTab
-            } else {
-                return .tab
-            }
-        default:
-            break
-        }
-
-        return nil
     }
 }

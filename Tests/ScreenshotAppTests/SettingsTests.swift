@@ -98,6 +98,25 @@ final class SettingsTests: XCTestCase {
         XCTAssertEqual(template.makeFilename(date: .distantPast, counter: 1), "Screenshot")
     }
 
+    func testMakeFilenameComponentsRemainStableAcrossRepeatedCallsWithDifferentFormats() {
+        let template = FilenameTemplate(blocks: [
+            .init(kind: .date, isEnabled: true, format: "yyyy"),
+            .init(kind: .time, isEnabled: true, format: "HH"),
+            .init(kind: .date, isEnabled: true, format: "MM")
+        ])
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let first = template.makeFilenameComponents(date: date, counter: 1)
+        let second = template.makeFilenameComponents(date: date.addingTimeInterval(3600), counter: 1)
+
+        XCTAssertEqual(first.count, 3)
+        XCTAssertEqual(second.count, 3)
+        XCTAssertEqual(first[0], "2023")
+        XCTAssertEqual(first[2], "11")
+        XCTAssertEqual(second[0], "2023")
+        XCTAssertEqual(second[2], "11")
+        XCTAssertNotEqual(first[1], second[1])
+    }
+
     func testShortcutsBackwardCompatibleDecodingDefaultsMissingKey() throws {
         let legacy = """
         {

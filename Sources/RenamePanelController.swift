@@ -118,29 +118,10 @@ final class RenamePanelController: NSWindowController {
     }
 
     private func sanitizedFilename(from input: String) -> String {
-        let ext = originalExtension
-
-        var base = input
-        if !ext.isEmpty, base.lowercased().hasSuffix("." + ext.lowercased()) {
-            base = String(base.dropLast(ext.count + 1))
-        }
-
-        let forbidden = CharacterSet(charactersIn: "/:")
-        let cleaned = base.components(separatedBy: forbidden).joined()
-        let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        let finalBase: String
-        if trimmed.isEmpty {
-            finalBase = originalBaseName.isEmpty ? "Screenshot" : originalBaseName
-        } else {
-            finalBase = trimmed
-        }
-
-        if ext.isEmpty {
-            return finalBase
-        } else {
-            return "\(finalBase).\(ext)"
-        }
+        let fallbackBase = originalBaseName.isEmpty ? "Screenshot" : originalBaseName
+        let fallbackName = originalExtension.isEmpty ? fallbackBase : "\(fallbackBase).\(originalExtension)"
+        let fallbackURL = URL(fileURLWithPath: "/tmp/\(fallbackName)")
+        return WorkflowFilenameLogic.sanitizeFilename(input, preservingExtensionOf: fallbackURL)
     }
 
     func show() {

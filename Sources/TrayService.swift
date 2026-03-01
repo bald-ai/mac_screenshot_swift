@@ -69,12 +69,7 @@ final class TrayService {
             showMenu()
 
         case .leftMouseUp:
-            // Control-click should behave like right-click.
-            if event.modifierFlags.contains(.control) {
-                showMenu()
-            } else {
-                showMenu()
-            }
+            showMenu()
 
         default:
             break

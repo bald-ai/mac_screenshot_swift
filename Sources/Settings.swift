@@ -226,9 +226,6 @@ extension FilenameTemplate {
     func makeFilenameComponents(date: Date, counter: Int) -> [String] {
         var components: [String] = []
 
-        let dateFormatter = DateFormatter()
-        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
-
         for block in blocks where block.isEnabled {
             switch block.kind {
             case .staticText:
@@ -236,16 +233,11 @@ extension FilenameTemplate {
                     components.append(text)
                 }
             case .date:
-                if let fmt = block.format {
-                    guard !fmt.isEmpty else { continue }
-                    dateFormatter.dateFormat = fmt
-                } else {
-                    dateFormatter.dateFormat = "yyyy-MM-dd"
-                }
-                components.append(dateFormatter.string(from: date))
+                let format = (block.format?.isEmpty == false ? block.format : nil) ?? "yyyy-MM-dd"
+                components.append(FilenameDateFormatterCache.string(from: date, format: format))
             case .time:
-                dateFormatter.dateFormat = block.format?.isEmpty == false ? block.format! : "HH.mm.ss"
-                components.append(dateFormatter.string(from: date))
+                let format = (block.format?.isEmpty == false ? block.format : nil) ?? "HH.mm.ss"
+                components.append(FilenameDateFormatterCache.string(from: date, format: format))
             case .counter:
                 // Always include counter when the block is enabled.
                 components.append(String(counter))
@@ -260,5 +252,36 @@ extension FilenameTemplate {
         let components = makeFilenameComponents(date: date, counter: counter)
         guard !components.isEmpty else { return "Screenshot" }
         return components.joined(separator: "_")
+    }
+}
+
+private enum FilenameDateFormatterCache {
+    private static let cache = ThreadSafeDateFormatterCache()
+
+    static func string(from date: Date, format: String) -> String {
+        cache.string(from: date, format: format)
+    }
+}
+
+private final class ThreadSafeDateFormatterCache {
+    private var formatters: [String: DateFormatter] = [:]
+    private let lock = NSLock()
+    private let locale = Locale(identifier: "en_US_POSIX")
+
+    func string(from date: Date, format: String) -> String {
+        lock.lock()
+        defer { lock.unlock() }
+
+        let formatter: DateFormatter
+        if let existing = formatters[format] {
+            formatter = existing
+        } else {
+            let created = DateFormatter()
+            created.locale = locale
+            created.dateFormat = format
+            formatters[format] = created
+            formatter = created
+        }
+        return formatter.string(from: date)
     }
 }

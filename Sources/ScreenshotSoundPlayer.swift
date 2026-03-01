@@ -32,11 +32,12 @@ final class ScreenshotSoundPlayer {
             player?.stop()
             player?.currentTime = 0
             if player?.play() != true {
+                AppLogger.error("Failed to play screenshot sound")
             }
         } catch {
             player = nil
             playerURL = nil
+            AppLogger.error("Failed initializing screenshot sound player", error: error)
         }
     }
 }
-

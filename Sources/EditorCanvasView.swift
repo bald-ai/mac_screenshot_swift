@@ -310,30 +310,39 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        drawBaseImageEdgeSeparation(in: baseImageBounds)
-        baseImage.draw(in: baseImageBounds, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
-
-        for item in items {
-            draw(item: item)
+        if baseImageBounds.intersects(dirtyRect) {
+            drawBaseImageEdgeSeparation(in: baseImageBounds)
+            baseImage.draw(in: baseImageBounds, from: .zero, operation: .sourceOver, fraction: 1.0, respectFlipped: true, hints: nil)
         }
 
-        if let selectionRect {
+        for item in items {
+            guard let bounds = boundsForItem(item) else { continue }
+            if bounds.intersects(dirtyRect) {
+                draw(item: item)
+            }
+        }
+
+        if let selectionRect, selectionRect.intersects(dirtyRect) {
             drawSelectionOutline(selectionRect)
         }
 
-        if let selectedImageIndex, case let .image(_, rect) = items[selectedImageIndex] {
+        if let selectedImageIndex,
+           case let .image(_, rect) = items[selectedImageIndex],
+           rect.intersects(dirtyRect) {
             drawImageSelectionOutline(rect)
         }
 
         if let index = selectedTextIndex, textEditor == nil {
             if case let .text(textItem) = items[index] {
                 let rect = textBounds(for: textItem).insetBy(dx: -2, dy: -2)
-                let path = NSBezierPath(rect: rect)
-                let dash: [CGFloat] = [4, 3]
-                path.setLineDash(dash, count: dash.count, phase: 0)
-                NSColor.white.withAlphaComponent(0.8).setStroke()
-                path.lineWidth = 1
-                path.stroke()
+                if rect.intersects(dirtyRect) {
+                    let path = NSBezierPath(rect: rect)
+                    let dash: [CGFloat] = [4, 3]
+                    path.setLineDash(dash, count: dash.count, phase: 0)
+                    NSColor.white.withAlphaComponent(0.8).setStroke()
+                    path.lineWidth = 1
+                    path.stroke()
+                }
             }
         }
 
