@@ -72,4 +72,43 @@ final class ScreenshotServiceCoreLogicTests: XCTestCase {
         XCTAssertEqual(image.size.width, expected.size.width, accuracy: 0.01)
         XCTAssertEqual(image.size.height, expected.size.height, accuracy: 0.01)
     }
+
+    func testOrderedDisplayIDsForScreencaptureMovesMainDisplayToFront() {
+        let ordered = ScreenshotServiceCoreLogic.orderedDisplayIDsForScreencapture(
+            activeDisplayIDs: [22, 11, 33],
+            mainDisplayID: 11
+        )
+
+        XCTAssertEqual(ordered, [11, 22, 33])
+    }
+
+    func testScreencaptureDisplayNumberUsesMainDisplayAsOne() {
+        let displayNumber = ScreenshotServiceCoreLogic.screencaptureDisplayNumber(
+            for: 11,
+            activeDisplayIDs: [22, 11, 33],
+            mainDisplayID: 11
+        )
+
+        XCTAssertEqual(displayNumber, 1)
+    }
+
+    func testScreencaptureDisplayNumberResolvesSecondaryDisplaySlot() {
+        let displayNumber = ScreenshotServiceCoreLogic.screencaptureDisplayNumber(
+            for: 33,
+            activeDisplayIDs: [22, 11, 33],
+            mainDisplayID: 11
+        )
+
+        XCTAssertEqual(displayNumber, 3)
+    }
+
+    func testScreencaptureDisplayNumberReturnsNilForUnknownDisplay() {
+        let displayNumber = ScreenshotServiceCoreLogic.screencaptureDisplayNumber(
+            for: 44,
+            activeDisplayIDs: [22, 11, 33],
+            mainDisplayID: 11
+        )
+
+        XCTAssertNil(displayNumber)
+    }
 }

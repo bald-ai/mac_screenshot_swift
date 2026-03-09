@@ -53,4 +53,26 @@ enum ScreenshotServiceCoreLogic {
         }
         return .loaded(image)
     }
+
+    static func orderedDisplayIDsForScreencapture(activeDisplayIDs: [CGDirectDisplayID],
+                                                  mainDisplayID: CGDirectDisplayID) -> [CGDirectDisplayID] {
+        guard !activeDisplayIDs.isEmpty else { return [] }
+
+        var ordered = activeDisplayIDs.filter { $0 == mainDisplayID }
+        ordered.append(contentsOf: activeDisplayIDs.filter { $0 != mainDisplayID })
+        return ordered
+    }
+
+    static func screencaptureDisplayNumber(for targetDisplayID: CGDirectDisplayID,
+                                           activeDisplayIDs: [CGDirectDisplayID],
+                                           mainDisplayID: CGDirectDisplayID) -> Int? {
+        let orderedDisplayIDs = orderedDisplayIDsForScreencapture(
+            activeDisplayIDs: activeDisplayIDs,
+            mainDisplayID: mainDisplayID
+        )
+        guard let index = orderedDisplayIDs.firstIndex(of: targetDisplayID) else {
+            return nil
+        }
+        return index + 1
+    }
 }

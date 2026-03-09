@@ -740,8 +740,6 @@ final class EditorWindowController: NSWindowController {
         let pointW = pixelSize.width / scaleFactor
         let pointH = pixelSize.height / scaleFactor
 
-        let maxW: CGFloat = 1400.0
-        let maxH: CGFloat = 900.0
         let minW: CGFloat = 580.0
         let minH: CGFloat = 250.0
         let toolbarH: CGFloat = toolbarMinimumHeight
@@ -749,56 +747,33 @@ final class EditorWindowController: NSWindowController {
         let chromeW: CGFloat = 24.0
         // Root stack spacing is 10. If we have a note preview bar, add its height + spacing.
         let chromeH: CGFloat = 24.0 + toolbarH + 10.0 + (noteH > 0 ? (10.0 + noteH) : 0.0)
+        let minContentSize = NSSize(width: minW, height: minH)
+        let maxContentSize = EditorWindowLayoutLogic.maximumContentSize(
+            visibleFrame: targetScreen?.visibleFrame ?? window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame,
+            minContentSize: minContentSize
+        )
 
         let settings = settingsStore.settings
         let wasResized = settings.maxWidth > 0 && Int(pointW.rounded()) == settings.maxWidth
-        totalPadding = calculateEditorPadding(imgWidth: pointW, imgHeight: pointH, wasResized: wasResized)
-
-        let availableW = maxW - chromeW - totalPadding
-        let availableH = maxH - chromeH - totalPadding
-
-        var fitScale: CGFloat
-        if pointW <= availableW && pointH <= availableH {
-            fitScale = 1.0
-        } else {
-            fitScale = min(availableW / pointW, availableH / pointH)
-        }
-        if !fitScale.isFinite || fitScale <= 0 { fitScale = 1.0 }
+        let layout = EditorWindowLayoutLogic.makeLayout(
+            EditorWindowLayoutInput(imagePointSize: NSSize(width: pointW, height: pointH),
+                                    maxContentSize: maxContentSize,
+                                    minContentSize: minContentSize,
+                                    chromeSize: NSSize(width: chromeW, height: chromeH),
+                                    wasResized: wasResized,
+                                    autoZoomFillRatio: autoZoomFillRatio,
+                                    maxAutoUserZoom: maxAutoUserZoom)
+        )
+        totalPadding = layout.totalPadding
 
         let pointToCanvasScaleW = pointW / imageSize.width
         let pointToCanvasScaleH = pointH / imageSize.height
         let pointToCanvasScale = min(pointToCanvasScaleW, pointToCanvasScaleH)
-        baseScale = fitScale * pointToCanvasScale
+        baseScale = layout.fitScale * pointToCanvasScale
 
-        let contentW = min(max(pointW * fitScale + totalPadding + chromeW, minW), maxW)
-        let contentH = min(max(pointH * fitScale + totalPadding + chromeH, minH), maxH)
+        window.setContentSize(layout.contentSize)
 
-        window.setContentSize(NSSize(width: contentW, height: contentH))
-
-        // If the window is bigger than the natural content (usually due to minW/minH),
-        // auto-zoom small captures so they use most of the available canvas.
-        defaultUserZoomFactor = 1.0
-        let unclampedW = pointW * fitScale + totalPadding + chromeW
-        let unclampedH = pointH * fitScale + totalPadding + chromeH
-        let hasExtraSlack = (contentW > unclampedW + 1.0) || (contentH > unclampedH + 1.0)
-
-        if hasExtraSlack {
-            // Visible scroll view size in points (canvas area).
-            let canvasW = contentW - chromeW
-            let canvasH = contentH - chromeH
-            // Image size in points at userZoomFactor = 1.0 (fitScale applied).
-            let imgW0 = pointW * fitScale
-            let imgH0 = pointH * fitScale
-
-            if canvasW > 0, canvasH > 0, imgW0 > 0, imgH0 > 0 {
-                let candidate = min((canvasW * autoZoomFillRatio) / imgW0,
-                                    (canvasH * autoZoomFillRatio) / imgH0)
-                if candidate.isFinite {
-                    defaultUserZoomFactor = max(1.0, min(maxAutoUserZoom, candidate))
-                }
-            }
-        }
-
+        defaultUserZoomFactor = layout.defaultUserZoomFactor
         userZoomFactor = defaultUserZoomFactor
         canvasView.setInitialTextZoomFactor(defaultUserZoomFactor)
         applyZoom()
@@ -833,16 +808,6 @@ final class EditorWindowController: NSWindowController {
         }
 
         return image.size
-    }
-
-    private func calculateEditorPadding(imgWidth: CGFloat, imgHeight: CGFloat, wasResized: Bool) -> CGFloat {
-        let maxPadding: CGFloat = 40.0
-        if wasResized { return 0.0 }
-
-        let fillRatioW = imgWidth / (1400.0 - maxPadding)
-        let fillRatioH = imgHeight / (900.0 - 72.0 - maxPadding)
-        let fillRatio = min(max(fillRatioW, fillRatioH), 1.0)
-        return maxPadding * (1.0 - fillRatio)
     }
 
     private var isContentScrollable: Bool {

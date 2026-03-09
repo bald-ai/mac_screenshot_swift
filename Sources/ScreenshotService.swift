@@ -61,7 +61,7 @@ final class ScreenshotService: NSObject {
         beginSystemAreaCapture()
     }
 
-    /// Captures the full contents of the primary display using macOS screencapture.
+    /// Captures the full contents of the display under the mouse using macOS screencapture.
     func captureFullScreen() {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
@@ -174,10 +174,14 @@ final class ScreenshotService: NSObject {
     }
 
     private func beginSystemFullScreenCapture() {
+        let targetScreen = screenUnderMouse() ?? menuBarScreen() ?? NSScreen.main ?? NSScreen.screens.first
+        let arguments = fullScreenCaptureArguments(for: targetScreen)
         beginSystemCapture(
-            arguments: ["-x", "-m"],
+            arguments: arguments,
             onCompletion: { [weak self] status, tempURL in
-                self?.finishSystemFullScreenCapture(tempURL: tempURL, terminationStatus: status)
+                self?.finishSystemFullScreenCapture(tempURL: tempURL,
+                                                   terminationStatus: status,
+                                                   targetScreen: targetScreen)
             }
         )
     }
@@ -228,7 +232,9 @@ final class ScreenshotService: NSObject {
         }
     }
 
-    private func finishSystemFullScreenCapture(tempURL: URL, terminationStatus: Int32) {
+    private func finishSystemFullScreenCapture(tempURL: URL,
+                                               terminationStatus: Int32,
+                                               targetScreen: NSScreen?) {
         if terminationStatus == -1 {
             try? fileManager.removeItem(at: tempURL)
             presentError(title: "Screenshot failed", message: "Could not start native full-screen capture.")
@@ -252,7 +258,6 @@ final class ScreenshotService: NSObject {
             do {
                 let url = try saveImageToDesktop(image)
                 soundPlayer.playCaptureSound()
-                let targetScreen = menuBarScreen() ?? NSScreen.main ?? NSScreen.screens.first
                 beginPostCaptureFlow(forExistingFileAt: url, on: targetScreen)
             } catch {
                 presentError(title: "Screenshot failed", message: error.localizedDescription)
@@ -297,14 +302,48 @@ final class ScreenshotService: NSObject {
         return result
     }
 
+    private func screenUnderMouse() -> NSScreen? {
+        NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
+    }
+
     private func menuBarScreen() -> NSScreen? {
         let mainDisplayID = CGMainDisplayID()
         return NSScreen.screens.first { screen in
-            guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-                return false
-            }
-            return CGDirectDisplayID(screenNumber.uint32Value) == mainDisplayID
+            screenDisplayID(screen) == mainDisplayID
         }
+    }
+
+    private func fullScreenCaptureArguments(for screen: NSScreen?) -> [String] {
+        guard let displayID = screen.flatMap(screenDisplayID),
+              let displayNumber = screencaptureDisplayNumber(for: displayID) else {
+            return ["-x", "-m"]
+        }
+        return ["-x", "-D\(displayNumber)"]
+    }
+
+    private func screencaptureDisplayNumber(for targetDisplayID: CGDirectDisplayID) -> Int? {
+        let maxDisplayCount: UInt32 = 32
+        var displayIDs = Array(repeating: CGDirectDisplayID(), count: Int(maxDisplayCount))
+        var actualDisplayCount: UInt32 = 0
+
+        let result = CGGetActiveDisplayList(maxDisplayCount, &displayIDs, &actualDisplayCount)
+        guard result == .success else {
+            return nil
+        }
+
+        let activeDisplayIDs = Array(displayIDs.prefix(Int(actualDisplayCount)))
+        return ScreenshotServiceCoreLogic.screencaptureDisplayNumber(
+            for: targetDisplayID,
+            activeDisplayIDs: activeDisplayIDs,
+            mainDisplayID: CGMainDisplayID()
+        )
+    }
+
+    private func screenDisplayID(_ screen: NSScreen) -> CGDirectDisplayID? {
+        guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+        return CGDirectDisplayID(screenNumber.uint32Value)
     }
 
     // MARK: - Helpers

@@ -8,7 +8,7 @@ All notable changes to this project are documented in this file.
 - Changed default global shortcuts to `Ctrl+Shift+4`, `Ctrl+Shift+3`, and `Ctrl+Shift+2` to reduce conflicts with macOS screenshot defaults.
 - Full-screen capture uses macOS `screencapture` again.
 - Full-screen capture no longer includes the mouse cursor.
-- Full-screen now targets the menu-bar display again to match the native `screencapture -m` flow.
+- Full-screen now targets the display under the mouse so multi-monitor capture matches area capture behavior.
 - Refactored workflow/utilities for maintainability: shared key-command parsing, shared unique filename generation, shared alert presentation, shared directory purge logic, and extracted note text preparation.
 - Reduced duplicated completion branching in workflow/editor paths and removed dead UI branching/checks in tray/panel components.
 - Improved resilience and observability by adding error logging in previously silent failure paths (`BackupService`, `SettingsStore`, `ScreenshotSoundPlayer`).
