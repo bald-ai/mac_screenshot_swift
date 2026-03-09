@@ -7,7 +7,26 @@ enum TemporaryImageResult {
     case unreadable
 }
 
+struct ScreenCaptureTarget: Equatable {
+    let displayID: CGDirectDisplayID
+    let frame: CGRect
+    let isMain: Bool
+}
+
 enum ScreenshotServiceCoreLogic {
+    static func targetDisplay(for mouseLocation: CGPoint,
+                              displays: [ScreenCaptureTarget]) -> ScreenCaptureTarget? {
+        if let matchingDisplay = displays.first(where: { $0.frame.contains(mouseLocation) }) {
+            return matchingDisplay
+        }
+
+        if let mainDisplay = displays.first(where: \.isMain) {
+            return mainDisplay
+        }
+
+        return displays.first
+    }
+
     static func resizedImageIfNeeded(_ image: NSImage, maxWidth: Int) -> NSImage {
         guard maxWidth > 0 else { return image }
 

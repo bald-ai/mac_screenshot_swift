@@ -244,11 +244,13 @@ final class ScreenshotWorkflowController {
             editor = EditorWindowController(image: pendingEditedImage,
                                             settingsStore: settingsStore,
                                             notePreview: text,
+                                            targetScreen: sourceScreen,
                                             escapeKeyDeletesFile: escapeKeyDeletesFile)
         } else {
             editor = EditorWindowController(imageURL: fileURL,
                                             settingsStore: settingsStore,
                                             notePreview: text,
+                                            targetScreen: sourceScreen,
                                             escapeKeyDeletesFile: escapeKeyDeletesFile)
         }
 

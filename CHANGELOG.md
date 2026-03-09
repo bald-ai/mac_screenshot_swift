@@ -6,11 +6,9 @@ All notable changes to this project are documented in this file.
 
 - Fixed note re-edit flow: returning from Editor to Note and reopening Editor now reflects updated note text instead of showing stale note preview.
 - Changed default global shortcuts to `Ctrl+Shift+4`, `Ctrl+Shift+3`, and `Ctrl+Shift+2` to reduce conflicts with macOS screenshot defaults.
-- Full-screen capture moved from ScreenCaptureKit to `/usr/sbin/screencapture`.
-- Legacy `CGDisplayCreateImage` fallback removed.
+- Full-screen capture now uses CoreGraphics again for native per-display capture.
 - Full-screen capture no longer includes the mouse cursor.
-- Full-screen now targets the menu-bar monitor (`-m`).
-- App now uses one capture backend for both area and full-screen capture.
+- Full-screen now captures the display under the mouse cursor and opens post-capture UI on that same display.
 - Refactored workflow/utilities for maintainability: shared key-command parsing, shared unique filename generation, shared alert presentation, shared directory purge logic, and extracted note text preparation.
 - Reduced duplicated completion branching in workflow/editor paths and removed dead UI branching/checks in tray/panel components.
 - Improved resilience and observability by adding error logging in previously silent failure paths (`BackupService`, `SettingsStore`, `ScreenshotSoundPlayer`).

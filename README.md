@@ -10,7 +10,7 @@ Status: **beta (`v0.x`)**
 
 ## What It Does
 
-- Fast area and full-screen capture.
+- Fast area capture and full-screen capture on the display under the mouse.
 - Quick post-capture flow: rename, note, edit, save/copy/delete.
 - Simple annotation editor (pen, arrow, rectangle, ellipse, text).
 - Keyboard-driven workflow.

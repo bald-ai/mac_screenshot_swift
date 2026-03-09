@@ -3,6 +3,54 @@ import AppKit
 @testable import Zoomies
 
 final class ScreenshotServiceCoreLogicTests: XCTestCase {
+    func testTargetDisplayReturnsDisplayContainingMouseLocation() {
+        let displays = [
+            ScreenCaptureTarget(displayID: 101,
+                                frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+                                isMain: true),
+            ScreenCaptureTarget(displayID: 202,
+                                frame: CGRect(x: 1440, y: 0, width: 1920, height: 1080),
+                                isMain: false)
+        ]
+
+        let target = ScreenshotServiceCoreLogic.targetDisplay(for: CGPoint(x: 1500, y: 400),
+                                                              displays: displays)
+
+        XCTAssertEqual(target?.displayID, 202)
+    }
+
+    func testTargetDisplayFallsBackToMainDisplayWhenMouseIsOutsideAllFrames() {
+        let displays = [
+            ScreenCaptureTarget(displayID: 101,
+                                frame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+                                isMain: true),
+            ScreenCaptureTarget(displayID: 202,
+                                frame: CGRect(x: 1440, y: 0, width: 1920, height: 1080),
+                                isMain: false)
+        ]
+
+        let target = ScreenshotServiceCoreLogic.targetDisplay(for: CGPoint(x: -2000, y: -2000),
+                                                              displays: displays)
+
+        XCTAssertEqual(target?.displayID, 101)
+    }
+
+    func testTargetDisplayFallsBackToFirstDisplayWhenNoMainDisplayExists() {
+        let displays = [
+            ScreenCaptureTarget(displayID: 202,
+                                frame: CGRect(x: 1440, y: 0, width: 1920, height: 1080),
+                                isMain: false),
+            ScreenCaptureTarget(displayID: 303,
+                                frame: CGRect(x: -1920, y: 0, width: 1920, height: 1080),
+                                isMain: false)
+        ]
+
+        let target = ScreenshotServiceCoreLogic.targetDisplay(for: CGPoint(x: 99999, y: 99999),
+                                                              displays: displays)
+
+        XCTAssertEqual(target?.displayID, 202)
+    }
+
     func testResizedImageIfNeededKeepsSmallImage() {
         let image = TestSupport.solidImage(width: 80, height: 40)
         let resized = ScreenshotServiceCoreLogic.resizedImageIfNeeded(image, maxWidth: 100)

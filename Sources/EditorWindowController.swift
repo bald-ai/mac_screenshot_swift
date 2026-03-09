@@ -24,6 +24,7 @@ final class EditorWindowController: NSWindowController {
     private let clipboardService = ClipboardService()
     private let settingsStore: SettingsStore
     private let notePreviewRaw: String?
+    private let targetScreen: NSScreen?
     private var notePreviewContainer: NSView?
     // Toolbar Cancel (X) should mirror the Escape behavior:
     // - For editor sessions that own the temp file: delete on cancel.
@@ -81,6 +82,7 @@ final class EditorWindowController: NSWindowController {
     convenience init?(imageURL: URL,
                       settingsStore: SettingsStore,
                       notePreview: String? = nil,
+                      targetScreen: NSScreen? = nil,
                       escapeKeyDeletesFile: Bool = true) {
         guard let image = NSImage(contentsOf: imageURL) else {
             let alert = NSAlert()
@@ -94,21 +96,24 @@ final class EditorWindowController: NSWindowController {
         self.init(image: image,
                   settingsStore: settingsStore,
                   notePreview: notePreview,
+                  targetScreen: targetScreen,
                   escapeKeyDeletesFile: escapeKeyDeletesFile)
     }
 
     init(image: NSImage,
          settingsStore: SettingsStore,
          notePreview: String? = nil,
-	     escapeKeyDeletesFile: Bool = true) {
-	        let escapeFinal: EditorCanvasView.FinalActionCommand = escapeKeyDeletesFile ? .deleteOnly : .closeOnly
-	        self.canvasView = EditorCanvasView(image: image, escapeFinalAction: escapeFinal)
-	        self.settingsStore = settingsStore
-	        self.notePreviewRaw = notePreview
-	        self.escapeFinalActionCommand = escapeFinal
+         targetScreen: NSScreen? = nil,
+         escapeKeyDeletesFile: Bool = true) {
+        let escapeFinal: EditorCanvasView.FinalActionCommand = escapeKeyDeletesFile ? .deleteOnly : .closeOnly
+        self.canvasView = EditorCanvasView(image: image, escapeFinalAction: escapeFinal)
+        self.settingsStore = settingsStore
+        self.notePreviewRaw = notePreview
+        self.targetScreen = targetScreen
+        self.escapeFinalActionCommand = escapeFinal
 
-	        // Provisional size. We'll resize to match the image (native-like) after building UI.
-	        let contentRect = NSRect(x: 0, y: 0, width: 720, height: 520)
+        // Provisional size. We'll resize to match the image (native-like) after building UI.
+        let contentRect = NSRect(x: 0, y: 0, width: 720, height: 520)
 
         let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
         let window = NSWindow(contentRect: contentRect,
@@ -131,7 +136,7 @@ final class EditorWindowController: NSWindowController {
 
         // Now that UI exists, choose an initial window size based on the image and current screen.
         sizeWindowToImage()
-        window.center()
+        positionWindowOnTargetScreen()
     }
 
     required init?(coder: NSCoder) {
@@ -797,6 +802,21 @@ final class EditorWindowController: NSWindowController {
         userZoomFactor = defaultUserZoomFactor
         canvasView.setInitialTextZoomFactor(defaultUserZoomFactor)
         applyZoom()
+    }
+
+    private func positionWindowOnTargetScreen() {
+        guard let window else { return }
+
+        if let targetScreen {
+            let frame = targetScreen.visibleFrame
+            let windowSize = window.frame.size
+            let origin = NSPoint(x: frame.midX - windowSize.width / 2,
+                                 y: frame.midY - windowSize.height / 2)
+            window.setFrameOrigin(origin)
+            return
+        }
+
+        window.center()
     }
 
     private func imagePixelSize(_ image: NSImage) -> NSSize {
