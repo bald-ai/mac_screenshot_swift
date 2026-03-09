@@ -1,5 +1,4 @@
 import AppKit
-import CoreGraphics
 
 protocol ScreenshotSoundPlaying {
     func playCaptureSound()
@@ -62,7 +61,7 @@ final class ScreenshotService: NSObject {
         beginSystemAreaCapture()
     }
 
-    /// Captures the full contents of the display under the mouse cursor.
+    /// Captures the full contents of the primary display using macOS screencapture.
     func captureFullScreen() {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
@@ -74,12 +73,8 @@ final class ScreenshotService: NSObject {
         guard canStartNewCapture() else {
             return
         }
-        guard let targetDisplay = resolvedDisplayUnderMouse() else {
-            presentError(title: "Screenshot failed", message: "Could not determine which display to capture.")
-            return
-        }
 
-        captureFullScreen(on: targetDisplay)
+        beginSystemFullScreenCapture()
     }
 
     /// Starts the rename/note flow for an already-saved image.
@@ -178,6 +173,15 @@ final class ScreenshotService: NSObject {
         )
     }
 
+    private func beginSystemFullScreenCapture() {
+        beginSystemCapture(
+            arguments: ["-x", "-m"],
+            onCompletion: { [weak self] status, tempURL in
+                self?.finishSystemFullScreenCapture(tempURL: tempURL, terminationStatus: status)
+            }
+        )
+    }
+
     private func beginSystemCapture(arguments: [String],
                                     onCompletion: @escaping (Int32, URL) -> Void) {
         let tempURL = makeTemporaryScreenshotURL()
@@ -224,24 +228,35 @@ final class ScreenshotService: NSObject {
         }
     }
 
-    private func captureFullScreen(on targetDisplay: ResolvedDisplayTarget) {
-        isSystemCaptureInProgress = true
-        defer { isSystemCaptureInProgress = false }
-
-        guard let cgImage = CGDisplayCreateImage(targetDisplay.displayID) else {
-            presentError(title: "Screenshot failed", message: "Could not capture the selected display.")
+    private func finishSystemFullScreenCapture(tempURL: URL, terminationStatus: Int32) {
+        if terminationStatus == -1 {
+            try? fileManager.removeItem(at: tempURL)
+            presentError(title: "Screenshot failed", message: "Could not start native full-screen capture.")
             return
         }
 
-        let imageSize = NSSize(width: cgImage.width, height: cgImage.height)
-        let image = NSImage(cgImage: cgImage, size: imageSize)
+        guard terminationStatus == 0 else {
+            try? fileManager.removeItem(at: tempURL)
+            presentError(title: "Screenshot failed", message: "System capture exited with status \(terminationStatus).")
+            return
+        }
 
-        do {
-            let url = try saveImageToDesktop(image)
-            soundPlayer.playCaptureSound()
-            beginPostCaptureFlow(forExistingFileAt: url, on: targetDisplay.screen)
-        } catch {
-            presentError(title: "Screenshot failed", message: error.localizedDescription)
+        switch loadTemporaryImage(at: tempURL) {
+        case .missing:
+            presentError(title: "Screenshot failed", message: "Captured image file not found.")
+            return
+        case .unreadable:
+            presentError(title: "Screenshot failed", message: "Could not read captured image.")
+            return
+        case .loaded(let image):
+            do {
+                let url = try saveImageToDesktop(image)
+                soundPlayer.playCaptureSound()
+                let targetScreen = menuBarScreen() ?? NSScreen.main ?? NSScreen.screens.first
+                beginPostCaptureFlow(forExistingFileAt: url, on: targetScreen)
+            } catch {
+                presentError(title: "Screenshot failed", message: error.localizedDescription)
+            }
         }
     }
 
@@ -282,33 +297,14 @@ final class ScreenshotService: NSObject {
         return result
     }
 
-    private func resolvedDisplayUnderMouse() -> ResolvedDisplayTarget? {
-        let screens = NSScreen.screens
-        let displays = screens.compactMap(makeScreenCaptureTarget(for:))
-        guard let targetDisplay = ScreenshotServiceCoreLogic.targetDisplay(for: NSEvent.mouseLocation,
-                                                                          displays: displays) else {
-            return nil
-        }
-
-        let targetScreen = screens.first { screen in
+    private func menuBarScreen() -> NSScreen? {
+        let mainDisplayID = CGMainDisplayID()
+        return NSScreen.screens.first { screen in
             guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
                 return false
             }
-            return CGDirectDisplayID(screenNumber.uint32Value) == targetDisplay.displayID
+            return CGDirectDisplayID(screenNumber.uint32Value) == mainDisplayID
         }
-
-        return ResolvedDisplayTarget(screen: targetScreen, displayID: targetDisplay.displayID)
-    }
-
-    private func makeScreenCaptureTarget(for screen: NSScreen) -> ScreenCaptureTarget? {
-        guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-            return nil
-        }
-
-        let displayID = CGDirectDisplayID(screenNumber.uint32Value)
-        return ScreenCaptureTarget(displayID: displayID,
-                                   frame: screen.frame,
-                                   isMain: displayID == CGMainDisplayID())
     }
 
     // MARK: - Helpers
@@ -342,8 +338,3 @@ final class ScreenshotService: NSObject {
 // are hopped back to the main queue. We mark it @unchecked Sendable to silence
 // Swift 6 Sendable warnings for queue hops.
 extension ScreenshotService: @unchecked Sendable {}
-
-private struct ResolvedDisplayTarget {
-    let screen: NSScreen?
-    let displayID: CGDirectDisplayID
-}
