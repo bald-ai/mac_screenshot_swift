@@ -1,4 +1,4 @@
-# ScreenshotApp
+# Zoomies
 
 Small keyboard-first macOS screenshot app I use daily.
 
@@ -20,7 +20,7 @@ Status: **beta (`v0.x`)**
 ```bash
 cd /Users/michalkrsik/windsurf_project_folder/mac_screenshot_swift
 swift build
-swift run ScreenshotApp
+swift run Zoomies
 ```
 
 ## Default Shortcuts

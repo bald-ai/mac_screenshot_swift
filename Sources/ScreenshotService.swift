@@ -262,7 +262,7 @@ final class ScreenshotService: NSObject {
 
     private func makeTemporaryScreenshotURL() -> URL {
         fileManager.temporaryDirectory
-            .appendingPathComponent("screenshotapp-\(UUID().uuidString)")
+            .appendingPathComponent("zoomies-\(UUID().uuidString)")
             .appendingPathExtension("png")
     }
 

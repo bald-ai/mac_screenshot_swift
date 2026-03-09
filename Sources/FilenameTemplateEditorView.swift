@@ -1,6 +1,6 @@
 import AppKit
 
-private let blockPasteboardType = NSPasteboard.PasteboardType("com.screenshotapp.filenameTemplate.block")
+private let blockPasteboardType = NSPasteboard.PasteboardType("com.zoomies.filenameTemplate.block")
 
 final class FilenameTemplateEditorView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private let settingsStore: SettingsStore

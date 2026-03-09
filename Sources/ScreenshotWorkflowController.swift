@@ -232,8 +232,11 @@ final class ScreenshotWorkflowController {
         noteController = nil
 
         if let existing = editorController {
-            existing.show()
-            return
+            // Rebuild the editor from the current composite image so a changed note
+            // preview is reflected when returning Note -> Editor.
+            pendingEditedImage = existing.currentCompositeImage()
+            existing.dismissWithoutCompletion()
+            editorController = nil
         }
 
         let editor: EditorWindowController?
@@ -267,6 +270,11 @@ final class ScreenshotWorkflowController {
     }
 
     private func returnToNoteFromEditor() {
+        if let editor = editorController {
+            pendingEditedImage = editor.currentCompositeImage()
+            editor.dismissWithoutCompletion()
+            editorController = nil
+        }
         presentNotePanel(existingText: pendingNoteText)
     }
 

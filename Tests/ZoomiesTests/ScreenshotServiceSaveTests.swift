@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-@testable import ScreenshotApp
+@testable import Zoomies
 
 private final class NoopSoundPlayer: ScreenshotSoundPlaying {
     func playCaptureSound() {}

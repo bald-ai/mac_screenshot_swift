@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PRODUCT_NAME="ScreenshotApp"
-DEFAULT_BUNDLE_ID="com.baldai.screenshotapp"
+PRODUCT_NAME="Zoomies"
+DEFAULT_BUNDLE_ID="com.baldai.zoomies"
 DEFAULT_VERSION="0.1.0"
 DEFAULT_BUILD_NUMBER="1"
 
@@ -99,6 +99,11 @@ mkdir -p "${APP_MACOS}" "${APP_RESOURCES}"
 cp "${EXECUTABLE_PATH}" "${APP_MACOS}/${PRODUCT_NAME}"
 cp -R "${RESOURCE_BUNDLE}" "${APP_RESOURCES}/"
 
+ICON_SRC="${REPO_ROOT}/dist/Zoomies.icns"
+if [[ -f "${ICON_SRC}" ]]; then
+  cp "${ICON_SRC}" "${APP_RESOURCES}/AppIcon.icns"
+fi
+
 cat > "${APP_CONTENTS}/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -111,9 +116,10 @@ cat > "${APP_CONTENTS}/Info.plist" <<EOF
   <key>CFBundleShortVersionString</key><string>${VERSION}</string>
   <key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSUIElement</key><true/>
   <key>NSAppleEventsUsageDescription</key>
-  <string>ScreenshotApp needs Finder access to reopen editing for the selected file.</string>
+  <string>Zoomies needs Finder access to reopen editing for the selected file.</string>
 </dict>
 </plist>
 EOF

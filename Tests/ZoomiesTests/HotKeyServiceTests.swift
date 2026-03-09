@@ -1,7 +1,7 @@
 import XCTest
 import AppKit
 import Carbon
-@testable import ScreenshotApp
+@testable import Zoomies
 
 final class HotKeyServiceTests: XCTestCase {
     func testCarbonModifierFlagsMapsExpectedFlags() {

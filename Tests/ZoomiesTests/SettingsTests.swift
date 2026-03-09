@@ -1,5 +1,5 @@
 import XCTest
-@testable import ScreenshotApp
+@testable import Zoomies
 
 final class SettingsTests: XCTestCase {
     func testNormalizedClampsAndQuantizesQuality() {

@@ -1,6 +1,6 @@
 import XCTest
 import AppKit
-@testable import ScreenshotApp
+@testable import Zoomies
 
 final class ScreenshotWorkflowControllerTests: XCTestCase {
     func testHandleEditorCompletionSaveOnlyPersistsEditedImage() throws {

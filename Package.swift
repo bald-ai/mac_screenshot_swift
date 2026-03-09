@@ -7,22 +7,22 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "ScreenshotApp", targets: ["ScreenshotApp"])
+        .executable(name: "Zoomies", targets: ["Zoomies"])
     ],
     dependencies: [
     ],
     targets: [
         .executableTarget(
-            name: "ScreenshotApp",
+            name: "Zoomies",
             path: "Sources",
             resources: [
                 .process("Resources")
             ]
         ),
         .testTarget(
-            name: "ScreenshotAppTests",
-            dependencies: ["ScreenshotApp"],
-            path: "Tests/ScreenshotAppTests"
+            name: "ZoomiesTests",
+            dependencies: ["Zoomies"],
+            path: "Tests/ZoomiesTests"
         )
     ]
 )

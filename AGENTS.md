@@ -38,11 +38,11 @@ Do not suggest changing keybinds; assume they are configured as-is.
 ```bash
 cd mac_screenshot_swift
 swift build
-./.build/arm64-apple-macosx/debug/ScreenshotApp
+./.build/arm64-apple-macosx/debug/Zoomies
 ```
 
 ### Quick Validation
 After coding changes, use:
 ```bash
-swift run ScreenshotApp
+swift run Zoomies
 ```

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for checking out `ScreenshotApp`.
+Thanks for checking out `Zoomies`.
 
 This is a small app I use daily and share as open source. Contributions are welcome.
 

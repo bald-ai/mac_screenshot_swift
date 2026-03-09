@@ -4,14 +4,25 @@
 <dict>
 	<key>files</key>
 	<dict>
-		<key>Resources/mac_screenshot_swift_ScreenshotApp.bundle/screenshot-sound.mp3</key>
+		<key>Resources/AppIcon.icns</key>
+		<data>
+		B0RbEETpoNDUIS9+8wOPegCmXac=
+		</data>
+		<key>Resources/mac_screenshot_swift_Zoomies.bundle/screenshot-sound.mp3</key>
 		<data>
 		oeFxnHkHpFesI1pvAsRyndvUxkQ=
 		</data>
 	</dict>
 	<key>files2</key>
 	<dict>
-		<key>Resources/mac_screenshot_swift_ScreenshotApp.bundle/screenshot-sound.mp3</key>
+		<key>Resources/AppIcon.icns</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			eKpPjRH5MmGnzQk+0dpszV/VP9+sCW3yzDBBcqutE6I=
+			</data>
+		</dict>
+		<key>Resources/mac_screenshot_swift_Zoomies.bundle/screenshot-sound.mp3</key>
 		<dict>
 			<key>hash2</key>
 			<data>

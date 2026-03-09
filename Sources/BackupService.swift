@@ -2,7 +2,7 @@ import Foundation
 
 /// Manages on-disk backups of original screenshots prior to editing.
 ///
-/// Backups live under `~/Library/Caches/screenshotapp/backups` and are
+/// Backups live under `~/Library/Caches/zoomies/backups` and are
 /// addressed deterministically by the original file's last path component.
 /// This keeps the implementation simple while still satisfying the "delete
 /// also removes any backups" requirement.
@@ -20,14 +20,14 @@ final class BackupService {
             self.backupsDirectory = base
                 .appendingPathComponent("Library", isDirectory: true)
                 .appendingPathComponent("Caches", isDirectory: true)
-                .appendingPathComponent("screenshotapp", isDirectory: true)
+                .appendingPathComponent("zoomies", isDirectory: true)
                 .appendingPathComponent("backups", isDirectory: true)
         }
 
         try? fileManager.createDirectory(at: self.backupsDirectory, withIntermediateDirectories: true)
     }
     
-    /// Removes all files under `~/Library/Caches/screenshotapp/backups`.
+    /// Removes all files under `~/Library/Caches/zoomies/backups`.
     /// Mirrors the legacy app behavior to avoid orphaned backups across dev sessions.
     func purgeAllBackups() {
         DirectoryPurgeLogic.purgeContents(of: backupsDirectory, fileManager: fileManager, label: "backup cache")

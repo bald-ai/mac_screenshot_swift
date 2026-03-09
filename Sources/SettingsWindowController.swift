@@ -44,7 +44,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         let window = NSWindow(contentRect: contentRect, styleMask: style, backing: .buffered, defer: false)
         window.center()
-        window.title = "Screenshot App Settings"
+        window.title = "Zoomies Settings"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.backgroundColor = .clear

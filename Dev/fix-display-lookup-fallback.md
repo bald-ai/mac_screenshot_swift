@@ -138,7 +138,7 @@ Add to `ScreenshotServiceCoreLogic.swift`:
 
 ### 3. Update tests
 
-**Files:** `Tests/ScreenshotAppTests/*`
+**Files:** `Tests/ZoomiesTests/*`
 
 Per repo rules (AGENTS.md): behavior changes require test updates.
 
@@ -172,7 +172,7 @@ Run:
 ```bash
 swift build
 swift test
-swift run ScreenshotApp
+swift run Zoomies
 ```
 
 Verify no old references remain:

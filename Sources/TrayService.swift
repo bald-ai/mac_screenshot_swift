@@ -23,9 +23,9 @@ final class TrayService {
     private func configureStatusItem() {
         if let button = statusItem.button {
             if #available(macOS 11.0, *) {
-                button.image = NSImage(systemSymbolName: "camera", accessibilityDescription: "Screenshot App")
+                button.image = NSImage(systemSymbolName: "camera", accessibilityDescription: "Zoomies")
             } else {
-                button.title = "SS"
+                button.title = "Z"
             }
             button.target = self
             button.action = #selector(statusItemClicked(_:))

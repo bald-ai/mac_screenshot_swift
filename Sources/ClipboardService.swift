@@ -6,7 +6,7 @@ import AppKit
 /// - Copy images to the pasteboard for editor actions.
 /// - Copy files to the pasteboard for rename/note/editor flows.
 /// - For "Copy+Delete", cache a copy of the file under
-///   `~/Library/Caches/screenshotapp/clipboard` so paste still works after
+///   `~/Library/Caches/zoomies/clipboard` so paste still works after
 ///   the original file is removed.
 final class ClipboardService {
     private let cacheDirectory: URL
@@ -22,7 +22,7 @@ final class ClipboardService {
             self.cacheDirectory = base
                 .appendingPathComponent("Library", isDirectory: true)
                 .appendingPathComponent("Caches", isDirectory: true)
-                .appendingPathComponent("screenshotapp", isDirectory: true)
+                .appendingPathComponent("zoomies", isDirectory: true)
                 .appendingPathComponent("clipboard", isDirectory: true)
         }
 
@@ -30,7 +30,7 @@ final class ClipboardService {
         try? fileManager.createDirectory(at: self.cacheDirectory, withIntermediateDirectories: true)
     }
     
-    /// Removes all cached files under `~/Library/Caches/screenshotapp/clipboard`.
+    /// Removes all cached files under `~/Library/Caches/zoomies/clipboard`.
     /// This keeps paste behavior correct while preventing unbounded growth during frequent use.
     func purgeAllCachedFiles() {
         DirectoryPurgeLogic.purgeContents(of: cacheDirectory, fileManager: fileManager, label: "clipboard cache")

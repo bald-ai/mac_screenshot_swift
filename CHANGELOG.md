@@ -4,6 +4,7 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+- Fixed note re-edit flow: returning from Editor to Note and reopening Editor now reflects updated note text instead of showing stale note preview.
 - Changed default global shortcuts to `Ctrl+Shift+4`, `Ctrl+Shift+3`, and `Ctrl+Shift+2` to reduce conflicts with macOS screenshot defaults.
 - Full-screen capture moved from ScreenCaptureKit to `/usr/sbin/screencapture`.
 - Legacy `CGDisplayCreateImage` fallback removed.
@@ -19,7 +20,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Initial public release of `ScreenshotApp` as a macOS menu bar app.
+- Initial public release of `Zoomies` as a macOS menu bar app.
 - Global shortcuts for fast workflows:
   - `Cmd+Shift+4` for area capture.
   - `Cmd+Shift+3` for full-screen capture.
