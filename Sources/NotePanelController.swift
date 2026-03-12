@@ -56,6 +56,10 @@ final class NotePanelController: NSWindowController {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isRichText = false
         textView.textContainerInset = NSSize(width: 4, height: 4)
+        textView.drawsBackground = true
+        textView.backgroundColor = .textBackgroundColor
+        textView.textColor = .textColor
+        textView.insertionPointColor = .textColor
         textView.string = String(initialText.prefix(Self.maxLength))
 
         textView.keyCommandHandler = { [weak self] command in

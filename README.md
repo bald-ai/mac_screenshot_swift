@@ -1,6 +1,6 @@
 # Zoomies
 
-> **⚠️ NOTE: On some macOS versions, the Screen Recording permission popup appears even though it is NOT actually required. If your screenshots work fine after dismissing the popup, YOU CAN SAFELY IGNORE IT.** On other macOS versions the permission is enforced and must be granted — the app will guide you to the correct settings if that happens.
+> **⚠️ NOTE: On macOS 26 and up, Screen Recording permission is required. On older versions the popup may still appear but it is probably NOT needed — if screenshots work without granting it, YOU CAN SAFELY IGNORE IT.** The app will guide you to the correct settings if permission is actually required.
 
 Small keyboard-first macOS screenshot app I use daily.
 
@@ -29,16 +29,14 @@ swift run Zoomies
 
 - `Ctrl+Shift+4` -> area capture
 - `Ctrl+Shift+3` -> full-screen capture
-- `Ctrl+Shift+2` -> reopen flow for selected Finder image
+- `Ctrl+Shift+2` -> select an image in Finder, press this to edit/rename it with Zoomies
 
 ## Rebinding Shortcuts
 
-I recommend rebinding Zoomies to use the default macOS screenshot shortcuts (`Cmd+Shift+3` / `Cmd+Shift+4`) — they are way more comfortable to use.
+I recommend rebinding to the default macOS screenshot shortcuts (`Cmd+Shift+3` / `Cmd+Shift+4`) — they are way more comfortable.
 
-- Open the app menu bar icon -> `Settings`.
-- In `Shortcuts`, click a shortcut recorder and press the new key combo.
-- Repeat for all actions you want to customize.
-- In macOS `System Settings` -> `Keyboard` -> `Keyboard Shortcuts` -> `Screenshots`, disable or change the system screenshot shortcuts so they do not conflict.
+1. First, unbind or rebind the default macOS shortcuts: go to `System Settings` -> `Keyboard` -> `Keyboard Shortcuts` -> `Screenshots` and disable them or change them to something else (I use `Option+Shift+3` / `Option+Shift+4` for the macOS ones).
+2. Then open the Zoomies menu bar icon -> `Settings` -> `Shortcuts`, and set `Cmd+Shift+3` / `Cmd+Shift+4` / `Cmd+Shift+2` for Zoomies.
 
 ## Permissions
 

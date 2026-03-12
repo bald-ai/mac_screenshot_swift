@@ -59,6 +59,9 @@ final class RenamePanelController: NSWindowController {
         textField.focusRingType = .default
         textField.bezelStyle = .roundedBezel
         textField.font = NSFont.systemFont(ofSize: 13)
+        textField.drawsBackground = true
+        textField.backgroundColor = .textBackgroundColor
+        textField.textColor = .textColor
 
         textField.keyCommandHandler = { [weak self] command in
             guard let self = self else {

@@ -42,16 +42,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             let alert = NSAlert()
             alert.alertStyle = .informational
-            alert.messageText = "Welcome to Zoomies"
+            alert.messageText = "🚨🚨🚨 READ THIS YOU DUMFUS OR YOU WILL BE CONFUSED AS FUCK 🚨🚨🚨"
             alert.informativeText = """
             Default shortcuts:
             • Ctrl+Shift+4 → Area capture
             • Ctrl+Shift+3 → Full-screen capture
-            • Ctrl+Shift+2 → Reopen Finder selection
+            • Ctrl+Shift+2 → Select an image in Finder, press this to edit/rename it with Zoomies
 
-            💡 Tip: We recommend rebinding to Cmd+Shift+3 / Cmd+Shift+4 (the default macOS screenshot shortcuts) — they are much more comfortable. You can change them in Settings.
+            💡 I recommend rebinding to Cmd+Shift+3 / Cmd+Shift+4 / Cmd+Shift+2 (the default macOS screenshot shortcuts) — they are much more comfortable. First, unbind or rebind the default macOS shortcuts in System Settings → Keyboard → Keyboard Shortcuts → Screenshots, then set the new shortcuts in Zoomies Settings.
 
-            ⚠️ Permissions: macOS may ask for Screen Recording permission. On some versions this is required, on others it is not — if screenshots work without granting it, you can safely ignore the popup.
+            ⚠️ Permissions: macOS may ask for Screen Recording permission. On macOS 26 and up it is required — on older versions it probably isn't, so if screenshots work without granting it, you can safely ignore the popup.
             """
             alert.addButton(withTitle: "OK")
             alert.runModal()
