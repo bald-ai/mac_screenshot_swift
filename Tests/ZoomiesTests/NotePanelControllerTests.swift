@@ -1,0 +1,43 @@
+import XCTest
+import AppKit
+@testable import Zoomies
+
+final class NotePanelControllerTests: XCTestCase {
+    func testNotePanelLocksEditorTextToWhite() throws {
+        let controller = NotePanelController(initialText: "hello")
+        let textView = try XCTUnwrap(findTextView(in: controller.window?.contentView))
+
+        XCTAssertEqual(textView.textColor, .white)
+        XCTAssertEqual(textView.insertionPointColor, .white)
+        XCTAssertEqual(textView.typingAttributes[.foregroundColor] as? NSColor, .white)
+
+        textView.typingAttributes[.foregroundColor] = NSColor.black
+        textView.textStorage?.addAttribute(.foregroundColor,
+                                           value: NSColor.black,
+                                           range: NSRange(location: 0, length: textView.string.count))
+        textView.didChangeText()
+        textView.setSelectedRange(NSRange(location: textView.string.count, length: 0))
+
+        XCTAssertEqual(textView.textColor, .white)
+        XCTAssertEqual(textView.insertionPointColor, .white)
+        XCTAssertEqual(textView.typingAttributes[.foregroundColor] as? NSColor, .white)
+
+        let effectiveColor = textView.textStorage?.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor
+        XCTAssertEqual(effectiveColor, .white)
+    }
+
+    private func findTextView(in view: NSView?) -> NSTextView? {
+        guard let view else { return nil }
+        if let textView = view as? NSTextView {
+            return textView
+        }
+
+        for subview in view.subviews {
+            if let textView = findTextView(in: subview) {
+                return textView
+            }
+        }
+
+        return nil
+    }
+}

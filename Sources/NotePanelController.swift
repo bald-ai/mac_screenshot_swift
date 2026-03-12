@@ -13,7 +13,7 @@ enum NotePanelAction {
 final class NotePanelController: NSWindowController {
     var onAction: ((NotePanelAction) -> Void)?
 
-    private let textView = CommandAwareTextView()
+    private let textView = LockedWhiteNoteTextView()
     private let shortcutLabel = NSTextField(labelWithString: "")
     private var escapeKeyDeletesFile: Bool = true
 
@@ -58,8 +58,7 @@ final class NotePanelController: NSWindowController {
         textView.textContainerInset = NSSize(width: 4, height: 4)
         textView.drawsBackground = true
         textView.backgroundColor = .textBackgroundColor
-        textView.textColor = .textColor
-        textView.insertionPointColor = .textColor
+        textView.configureFixedWhiteText()
         textView.string = String(initialText.prefix(Self.maxLength))
 
         textView.keyCommandHandler = { [weak self] command in
@@ -128,5 +127,80 @@ final class NotePanelController: NSWindowController {
         window.makeFirstResponder(textView)
         let end = textView.string.count
         textView.setSelectedRange(NSRange(location: end, length: 0))
+    }
+}
+
+private final class LockedWhiteNoteTextView: NSTextView {
+    var keyCommandHandler: ((KeyCommand) -> Void)?
+    private var isApplyingFixedTextStyle = false
+
+    func configureFixedWhiteText() {
+        enforceFixedTextStyle()
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if let command = interpretNoteKeyCommand(from: event) {
+            keyCommandHandler?(command)
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        enforceFixedTextStyle()
+    }
+
+    override func setSelectedRange(_ charRange: NSRange, affinity: NSSelectionAffinity, stillSelecting flag: Bool) {
+        super.setSelectedRange(charRange, affinity: affinity, stillSelecting: flag)
+        enforceTypingColor()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let becameFirstResponder = super.becomeFirstResponder()
+        enforceFixedTextStyle()
+        return becameFirstResponder
+    }
+
+    private func enforceFixedTextStyle() {
+        guard !isApplyingFixedTextStyle else { return }
+        isApplyingFixedTextStyle = true
+        defer { isApplyingFixedTextStyle = false }
+
+        let color = NSColor.white
+        textColor = color
+        insertionPointColor = color
+        enforceTypingColor()
+
+        if let textStorage, textStorage.length > 0 {
+            let selected = selectedRange()
+            textStorage.beginEditing()
+            textStorage.addAttribute(.foregroundColor, value: color, range: NSRange(location: 0, length: textStorage.length))
+            textStorage.endEditing()
+            super.setSelectedRange(selected, affinity: .downstream, stillSelecting: false)
+        }
+    }
+
+    private func enforceTypingColor() {
+        var attributes = typingAttributes
+        attributes[.foregroundColor] = NSColor.white
+        typingAttributes = attributes
+    }
+}
+
+private func interpretNoteKeyCommand(from event: NSEvent) -> KeyCommand? {
+    let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+    switch event.keyCode {
+    case 36:
+        return flags.contains(.command) ? .commandEnter : .enter
+    case 51:
+        return flags.contains(.command) ? .commandBackspace : nil
+    case 53:
+        return .escape
+    case 48:
+        return flags.contains(.shift) ? .shiftTab : .tab
+    default:
+        return nil
     }
 }
