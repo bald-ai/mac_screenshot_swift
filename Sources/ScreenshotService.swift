@@ -206,8 +206,12 @@ final class ScreenshotService: NSObject {
         }
 
         guard terminationStatus == 0 else {
-            // User cancelled the macOS picker.
             try? fileManager.removeItem(at: tempURL)
+            if !CGPreflightScreenCaptureAccess() {
+                presentScreenRecordingPermissionError()
+                return
+            }
+            // User cancelled the macOS picker.
             return
         }
 
@@ -243,7 +247,11 @@ final class ScreenshotService: NSObject {
 
         guard terminationStatus == 0 else {
             try? fileManager.removeItem(at: tempURL)
-            presentError(title: "Screenshot failed", message: "System capture exited with status \(terminationStatus).")
+            if !CGPreflightScreenCaptureAccess() {
+                presentScreenRecordingPermissionError()
+            } else {
+                presentError(title: "Screenshot failed", message: "System capture exited with status \(terminationStatus).")
+            }
             return
         }
 
@@ -362,6 +370,12 @@ final class ScreenshotService: NSObject {
             baseName: baseName,
             fileExists: { [fileManager] path in fileManager.fileExists(atPath: path) }
         )
+    }
+
+    private func presentScreenRecordingPermissionError() {
+        let title = "Screen Recording Permission Required"
+        let message = "Zoomies needs Screen Recording permission to take screenshots.\n\nOpen System Settings → Privacy & Security → Screen Recording, enable Zoomies, then quit and reopen the app."
+        AlertPresenter.presentWarningWithSettingsButton(title: title, message: message)
     }
 
     private func presentError(title: String, message: String) {

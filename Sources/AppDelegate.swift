@@ -90,7 +90,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             screenshotService.beginPostCaptureFlow(forExistingFileAt: url, on: nil, escapeKeyDeletesFile: false)
         } catch {
-            presentError(title: "Finder Error", message: error.localizedDescription)
+            let nsError = error as NSError
+            if nsError.domain == "FinderSelectionService" && nsError.code == -2 {
+                AlertPresenter.presentWarningWithSettingsButton(
+                    title: "Automation Permission Required",
+                    message: "Zoomies needs permission to communicate with Finder.\n\nOpen System Settings → Privacy & Security → Automation, and enable Finder under Zoomies.",
+                    settingsURL: "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+                )
+            } else {
+                presentError(title: "Finder Error", message: error.localizedDescription)
+            }
         }
     }
 
