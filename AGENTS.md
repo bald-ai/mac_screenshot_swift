@@ -30,9 +30,9 @@ Optimize for clarity, fast iteration, and future maintainability.
 
 ## Project Notes
 ### Keybinds
-IMPORTANT: The app uses Cmd+Shift+3, Cmd+Shift+4, and Cmd+Shift+2 for shortcuts.
-These conflict with macOS defaults, and system screenshot shortcuts are already disabled.
-Do not suggest changing keybinds; assume they are configured as-is.
+IMPORTANT: The app uses Ctrl+Shift+3, Ctrl+Shift+4, and Ctrl+Shift+2 for shortcuts by default.
+These are the current default shortcuts in source.
+Do not suggest changing keybinds; assume they are configured as-is unless the user asks.
 
 ### Build & Run
 ```bash
