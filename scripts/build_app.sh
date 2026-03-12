@@ -99,6 +99,11 @@ mkdir -p "${APP_MACOS}" "${APP_RESOURCES}"
 cp "${EXECUTABLE_PATH}" "${APP_MACOS}/${PRODUCT_NAME}"
 cp -R "${RESOURCE_BUNDLE}" "${APP_RESOURCES}/"
 
+SCREENSHOT_SOUND="${RESOURCE_BUNDLE}/screenshot-sound.mp3"
+if [[ -f "${SCREENSHOT_SOUND}" ]]; then
+  cp "${SCREENSHOT_SOUND}" "${APP_RESOURCES}/"
+fi
+
 ICON_SRC="${REPO_ROOT}/dist/Zoomies.icns"
 if [[ -f "${ICON_SRC}" ]]; then
   cp "${ICON_SRC}" "${APP_RESOURCES}/AppIcon.icns"

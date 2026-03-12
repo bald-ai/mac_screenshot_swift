@@ -12,6 +12,10 @@
 		<data>
 		oeFxnHkHpFesI1pvAsRyndvUxkQ=
 		</data>
+		<key>Resources/screenshot-sound.mp3</key>
+		<data>
+		oeFxnHkHpFesI1pvAsRyndvUxkQ=
+		</data>
 	</dict>
 	<key>files2</key>
 	<dict>
@@ -23,6 +27,13 @@
 			</data>
 		</dict>
 		<key>Resources/mac_screenshot_swift_Zoomies.bundle/screenshot-sound.mp3</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			gC8xc+8PBlj7AUyoMNNIGmSddsOsmLsEr3hJlY74kS4=
+			</data>
+		</dict>
+		<key>Resources/screenshot-sound.mp3</key>
 		<dict>
 			<key>hash2</key>
 			<data>

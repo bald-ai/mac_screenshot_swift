@@ -7,6 +7,11 @@ import AVFoundation
 final class ScreenshotSoundPlayer {
     private var player: AVAudioPlayer?
     private var playerURL: URL?
+    private let fileManager: FileManager
+
+    init(fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+    }
 
     func playCaptureSound() {
         // AVAudioPlayer is happier when managed from the main thread in AppKit apps.
@@ -17,7 +22,12 @@ final class ScreenshotSoundPlayer {
             return
         }
 
-        guard let url = Bundle.module.url(forResource: "screenshot-sound", withExtension: "mp3") else {
+        guard let url = BundledResourceLocator.resourceURL(
+            named: "screenshot-sound",
+            withExtension: "mp3",
+            fileManager: fileManager
+        ) else {
+            AppLogger.error("Screenshot sound resource not found")
             return
         }
 
