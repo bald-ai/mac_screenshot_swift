@@ -35,6 +35,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         registerHotKeys()
+        showWelcomeInfo()
+    }
+
+    private func showWelcomeInfo() {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = "Welcome to Zoomies"
+            alert.informativeText = """
+            Default shortcuts:
+            • Ctrl+Shift+4 → Area capture
+            • Ctrl+Shift+3 → Full-screen capture
+            • Ctrl+Shift+2 → Reopen Finder selection
+
+            💡 Tip: We recommend rebinding to Cmd+Shift+3 / Cmd+Shift+4 (the default macOS screenshot shortcuts) — they are much more comfortable. You can change them in Settings.
+
+            ⚠️ Permissions: macOS may ask for Screen Recording permission. On some versions this is required, on others it is not — if screenshots work without granting it, you can safely ignore the popup.
+            """
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
     }
     
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
