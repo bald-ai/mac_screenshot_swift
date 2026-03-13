@@ -13,7 +13,7 @@ enum NotePanelAction {
 final class NotePanelController: NSWindowController {
     var onAction: ((NotePanelAction) -> Void)?
 
-    private let textView = LockedWhiteNoteTextView()
+    private let textView = LockedWhiteNoteTextView(frame: .zero, textContainer: nil)
     private let shortcutLabel = NSTextField(labelWithString: "")
     private var escapeKeyDeletesFile: Bool = true
 
@@ -21,7 +21,7 @@ final class NotePanelController: NSWindowController {
 
     var text: String {
         get { String(textView.string.prefix(Self.maxLength)) }
-        set { textView.string = String(newValue.prefix(Self.maxLength)) }
+        set { textView.setFixedWhiteString(String(newValue.prefix(Self.maxLength))) }
     }
 
     convenience init(initialText: String, escapeKeyDeletesFile: Bool = true) {
@@ -57,14 +57,14 @@ final class NotePanelController: NSWindowController {
         textView.isRichText = false
         textView.textContainerInset = NSSize(width: 4, height: 4)
         textView.drawsBackground = true
-        textView.backgroundColor = .textBackgroundColor
+        textView.backgroundColor = NSColor.textBackgroundColor
         textView.configureFixedWhiteText()
-        textView.string = String(initialText.prefix(Self.maxLength))
+        textView.setFixedWhiteString(String(initialText.prefix(Self.maxLength)))
 
-        textView.keyCommandHandler = { [weak self] command in
+        textView.keyCommandHandler = { [weak self] (command: KeyCommand) in
             guard let self = self else { return }
             let value = String(self.textView.string.prefix(Self.maxLength))
-            self.textView.string = value
+            self.textView.setFixedWhiteString(value)
             switch command {
             case .enter:
                 self.onAction?(.save(text: value))
@@ -134,7 +134,52 @@ private final class LockedWhiteNoteTextView: NSTextView {
     var keyCommandHandler: ((KeyCommand) -> Void)?
     private var isApplyingFixedTextStyle = false
 
+    override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
+        if let container {
+            super.init(frame: frameRect, textContainer: container)
+        } else {
+            let textStorage = NSTextStorage()
+            let layoutManager = NSLayoutManager()
+            let textContainer = NSTextContainer(size: NSSize(width: frameRect.width, height: .greatestFiniteMagnitude))
+            textContainer.widthTracksTextView = true
+            textContainer.heightTracksTextView = false
+            layoutManager.addTextContainer(textContainer)
+            textStorage.addLayoutManager(layoutManager)
+            super.init(frame: frameRect, textContainer: textContainer)
+        }
+
+        isEditable = true
+        isSelectable = true
+        isVerticallyResizable = true
+        isHorizontallyResizable = false
+        autoresizingMask = [.width]
+        textContainerInset = NSSize(width: 4, height: 4)
+        textContainer?.widthTracksTextView = true
+        textContainer?.heightTracksTextView = false
+        textContainer?.containerSize = NSSize(width: frameRect.width, height: .greatestFiniteMagnitude)
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleSelectionDidChange),
+            name: NSTextView.didChangeSelectionNotification,
+            object: self
+        )
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     func configureFixedWhiteText() {
+        enforceFixedTextStyle()
+    }
+
+    func setFixedWhiteString(_ value: String) {
+        string = value
         enforceFixedTextStyle()
     }
 
@@ -162,6 +207,16 @@ private final class LockedWhiteNoteTextView: NSTextView {
         return becameFirstResponder
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        enforceFixedTextStyle()
+    }
+
+    override func paste(_ sender: Any?) {
+        super.paste(sender)
+        enforceFixedTextStyle()
+    }
+
     private func enforceFixedTextStyle() {
         guard !isApplyingFixedTextStyle else { return }
         isApplyingFixedTextStyle = true
@@ -183,8 +238,15 @@ private final class LockedWhiteNoteTextView: NSTextView {
 
     private func enforceTypingColor() {
         var attributes = typingAttributes
+        if let font {
+            attributes[.font] = font
+        }
         attributes[.foregroundColor] = NSColor.white
         typingAttributes = attributes
+    }
+
+    @objc private func handleSelectionDidChange() {
+        enforceTypingColor()
     }
 }
 
