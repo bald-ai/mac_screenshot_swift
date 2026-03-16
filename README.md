@@ -1,6 +1,6 @@
 # Zoomies
 
-> **⚠️ NOTE: On macOS 26 and up, Screen Recording permission is required. On older versions the popup may still appear but it is probably NOT needed — if screenshots work without granting it, YOU CAN SAFELY IGNORE IT.** The app will guide you to the correct settings if permission is actually required.
+> **Requires macOS 14 (Sonoma) or later.**
 
 Small keyboard-first macOS screenshot app I use daily.
 
@@ -40,9 +40,9 @@ I recommend rebinding to the default macOS screenshot shortcuts (`Cmd+Shift+3` /
 
 ## Permissions
 
-The app may request macOS permissions for:
+The app uses `ScreenCaptureKit` (`SCScreenshotManager`) for all screen capture. macOS will prompt once for Screen Recording permission.
 
-- **Screen Recording** (for screenshots)
+- **Screen Recording** (for screenshots via ScreenCaptureKit)
 - **Automation / Finder** (for reopening flow on selected Finder image via `Ctrl+Shift+2`)
 
 ## Ideas, Issues, PRs

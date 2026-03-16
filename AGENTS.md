@@ -28,6 +28,19 @@ Optimize for clarity, fast iteration, and future maintainability.
 - Gate before handoff: run `swift build`, `swift test` (if tests exist), plus project validation commands.
 - If any step cannot be run, state why and what is missing.
 
+## Architecture Decisions
+
+### Screen Capture: ScreenCaptureKit only (macOS 14+)
+The app targets macOS 14 (Sonoma) and later. All screen capture uses `SCScreenshotManager` from ScreenCaptureKit — no fallbacks, no `CGDisplayCreateImage`, no `/usr/sbin/screencapture` CLI.
+
+Why:
+- The app previously used `screencapture` CLI, which caused permission confusion (TCC checks on the app vs the child process disagreed).
+- Before that, the app already had a working ScreenCaptureKit implementation that was incorrectly replaced.
+- Apple explicitly recommends ScreenCaptureKit and is tightening restrictions on legacy capture paths.
+- Single in-process permission model: one Screen Recording grant, no ambiguity.
+
+Do not reintroduce `screencapture` CLI or `CGDisplayCreateImage` fallbacks.
+
 ## Project Notes
 ### Keybinds
 IMPORTANT: The app uses Ctrl+Shift+3, Ctrl+Shift+4, and Ctrl+Shift+2 for shortcuts by default.
