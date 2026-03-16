@@ -51,7 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
             💡 I recommend rebinding to Cmd+Shift+3 / Cmd+Shift+4 / Cmd+Shift+2 (the default macOS screenshot shortcuts) — they are much more comfortable. First, unbind or rebind the default macOS shortcuts in System Settings → Keyboard → Keyboard Shortcuts → Screenshots, then set the new shortcuts in Zoomies Settings.
 
-            ⚠️ Permissions: macOS may ask for Screen Recording permission. On macOS 26 and up it is required — on older versions it probably isn't, so if screenshots work without granting it, you can safely ignore the popup.
+            ⚠️ Permissions: macOS will ask for Screen Recording permission the first time you capture. If you deny it, enable Zoomies in System Settings → Privacy & Security → Screen Recording, then try again.
             """
             alert.addButton(withTitle: "OK")
             alert.runModal()

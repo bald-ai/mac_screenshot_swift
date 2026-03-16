@@ -30,85 +30,46 @@ final class ScreenshotServiceCoreLogicTests: XCTestCase {
         XCTAssertEqual(url.lastPathComponent, "Screenshot_3.jpg")
     }
 
-    func testLoadTemporaryImageReturnsMissingWhenFileIsNotPresent() {
-        let url = URL(fileURLWithPath: "/tmp/missing-image.png")
-        let result = ScreenshotServiceCoreLogic.loadTemporaryImage(
-            at: url,
-            fileExists: { _ in false },
-            loadImage: { _ in
-                XCTFail("loadImage should not be called when file is missing")
-                return nil
-            }
+    func testScreenCaptureRectFlipsToDisplayTopLeftCoordinates() {
+        let result = ScreenshotServiceCoreLogic.screenCaptureRect(
+            rectInScreenPoints: CGRect(x: 100, y: 50, width: 200, height: 100),
+            screenFrame: CGRect(x: 0, y: 0, width: 1440, height: 900),
+            scale: 2
         )
-        guard case .missing = result else {
-            return XCTFail("Expected .missing result")
-        }
+
+        XCTAssertEqual(result?.pointRect, CGRect(x: 100, y: 750, width: 200, height: 100))
+        XCTAssertEqual(result?.pixelRect, CGRect(x: 200, y: 1500, width: 400, height: 200))
     }
 
-    func testLoadTemporaryImageReturnsUnreadableWhenLoaderFails() {
-        let url = URL(fileURLWithPath: "/tmp/unreadable-image.png")
-        let result = ScreenshotServiceCoreLogic.loadTemporaryImage(
-            at: url,
-            fileExists: { _ in true },
-            loadImage: { _ in nil }
+    func testScreenCaptureRectAccountsForSecondaryDisplayOrigin() {
+        let result = ScreenshotServiceCoreLogic.screenCaptureRect(
+            rectInScreenPoints: CGRect(x: 1500, y: 50, width: 200, height: 100),
+            screenFrame: CGRect(x: 1440, y: 0, width: 1280, height: 800),
+            scale: 2
         )
-        guard case .unreadable = result else {
-            return XCTFail("Expected .unreadable result")
-        }
+
+        XCTAssertEqual(result?.pointRect, CGRect(x: 60, y: 650, width: 200, height: 100))
+        XCTAssertEqual(result?.pixelRect, CGRect(x: 120, y: 1300, width: 400, height: 200))
     }
 
-    func testLoadTemporaryImageReturnsLoadedWhenImageCanBeRead() {
-        let expected = TestSupport.solidImage(width: 32, height: 16)
-        let url = URL(fileURLWithPath: "/tmp/readable-image.png")
-        let result = ScreenshotServiceCoreLogic.loadTemporaryImage(
-            at: url,
-            fileExists: { _ in true },
-            loadImage: { _ in expected }
+    func testScreenCaptureRectClampsSelectionToDisplayBounds() {
+        let result = ScreenshotServiceCoreLogic.screenCaptureRect(
+            rectInScreenPoints: CGRect(x: -20, y: -20, width: 100, height: 100),
+            screenFrame: CGRect(x: 0, y: 0, width: 80, height: 80),
+            scale: 2
         )
 
-        guard case .loaded(let image) = result else {
-            return XCTFail("Expected .loaded result")
-        }
-        XCTAssertEqual(image.size.width, expected.size.width, accuracy: 0.01)
-        XCTAssertEqual(image.size.height, expected.size.height, accuracy: 0.01)
+        XCTAssertEqual(result?.pointRect, CGRect(x: 0, y: 0, width: 80, height: 80))
+        XCTAssertEqual(result?.pixelRect, CGRect(x: 0, y: 0, width: 160, height: 160))
     }
 
-    func testOrderedDisplayIDsForScreencaptureMovesMainDisplayToFront() {
-        let ordered = ScreenshotServiceCoreLogic.orderedDisplayIDsForScreencapture(
-            activeDisplayIDs: [22, 11, 33],
-            mainDisplayID: 11
+    func testScreenCaptureRectReturnsNilWhenSelectionFallsOutsideDisplay() {
+        let result = ScreenshotServiceCoreLogic.screenCaptureRect(
+            rectInScreenPoints: CGRect(x: 500, y: 500, width: 50, height: 50),
+            screenFrame: CGRect(x: 0, y: 0, width: 80, height: 80),
+            scale: 2
         )
 
-        XCTAssertEqual(ordered, [11, 22, 33])
-    }
-
-    func testScreencaptureDisplayNumberUsesMainDisplayAsOne() {
-        let displayNumber = ScreenshotServiceCoreLogic.screencaptureDisplayNumber(
-            for: 11,
-            activeDisplayIDs: [22, 11, 33],
-            mainDisplayID: 11
-        )
-
-        XCTAssertEqual(displayNumber, 1)
-    }
-
-    func testScreencaptureDisplayNumberResolvesSecondaryDisplaySlot() {
-        let displayNumber = ScreenshotServiceCoreLogic.screencaptureDisplayNumber(
-            for: 33,
-            activeDisplayIDs: [22, 11, 33],
-            mainDisplayID: 11
-        )
-
-        XCTAssertEqual(displayNumber, 3)
-    }
-
-    func testScreencaptureDisplayNumberReturnsNilForUnknownDisplay() {
-        let displayNumber = ScreenshotServiceCoreLogic.screencaptureDisplayNumber(
-            for: 44,
-            activeDisplayIDs: [22, 11, 33],
-            mainDisplayID: 11
-        )
-
-        XCTAssertNil(displayNumber)
+        XCTAssertNil(result)
     }
 }

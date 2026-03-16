@@ -1,10 +1,9 @@
 import AppKit
 import Foundation
 
-enum TemporaryImageResult {
-    case loaded(NSImage)
-    case missing
-    case unreadable
+struct ScreenCaptureRect {
+    let pointRect: CGRect
+    let pixelRect: CGRect
 }
 
 enum ScreenshotServiceCoreLogic {
@@ -42,37 +41,39 @@ enum ScreenshotServiceCoreLogic {
         )
     }
 
-    static func loadTemporaryImage(at url: URL,
-                                   fileExists: (String) -> Bool,
-                                   loadImage: (URL) -> NSImage?) -> TemporaryImageResult {
-        guard fileExists(url.path) else {
-            return .missing
-        }
-        guard let image = loadImage(url) else {
-            return .unreadable
-        }
-        return .loaded(image)
-    }
-
-    static func orderedDisplayIDsForScreencapture(activeDisplayIDs: [CGDirectDisplayID],
-                                                  mainDisplayID: CGDirectDisplayID) -> [CGDirectDisplayID] {
-        guard !activeDisplayIDs.isEmpty else { return [] }
-
-        var ordered = activeDisplayIDs.filter { $0 == mainDisplayID }
-        ordered.append(contentsOf: activeDisplayIDs.filter { $0 != mainDisplayID })
-        return ordered
-    }
-
-    static func screencaptureDisplayNumber(for targetDisplayID: CGDirectDisplayID,
-                                           activeDisplayIDs: [CGDirectDisplayID],
-                                           mainDisplayID: CGDirectDisplayID) -> Int? {
-        let orderedDisplayIDs = orderedDisplayIDsForScreencapture(
-            activeDisplayIDs: activeDisplayIDs,
-            mainDisplayID: mainDisplayID
-        )
-        guard let index = orderedDisplayIDs.firstIndex(of: targetDisplayID) else {
+    static func screenCaptureRect(rectInScreenPoints rect: CGRect,
+                                  screenFrame: CGRect,
+                                  scale: CGFloat) -> ScreenCaptureRect? {
+        guard scale > 0 else {
             return nil
         }
-        return index + 1
+
+        let localRectPoints = CGRect(
+            x: rect.origin.x - screenFrame.origin.x,
+            y: rect.origin.y - screenFrame.origin.y,
+            width: rect.width,
+            height: rect.height
+        )
+
+        let pointBounds = CGRect(origin: .zero, size: screenFrame.size)
+        let flippedY = pointBounds.height - (localRectPoints.origin.y + localRectPoints.height)
+        let sourceRect = CGRect(x: localRectPoints.origin.x,
+                                y: flippedY,
+                                width: localRectPoints.width,
+                                height: localRectPoints.height)
+        let clampedPointRect = sourceRect.integral.intersection(pointBounds)
+        guard clampedPointRect.width >= 1, clampedPointRect.height >= 1 else {
+            return nil
+        }
+
+        let pixelRect = CGRect(x: clampedPointRect.origin.x * scale,
+                               y: clampedPointRect.origin.y * scale,
+                               width: clampedPointRect.width * scale,
+                               height: clampedPointRect.height * scale).integral
+        guard pixelRect.width >= 1, pixelRect.height >= 1 else {
+            return nil
+        }
+
+        return ScreenCaptureRect(pointRect: clampedPointRect, pixelRect: pixelRect)
     }
 }

@@ -1,4 +1,6 @@
 import AppKit
+import CoreGraphics
+import ScreenCaptureKit
 
 protocol ScreenshotSoundPlaying {
     func playCaptureSound()
@@ -9,6 +11,12 @@ extension ScreenshotSoundPlayer: ScreenshotSoundPlaying {}
 /// Handles screenshot capture, resizing, encoding and filename generation,
 /// and then kicks off the rename/note workflow.
 final class ScreenshotService: NSObject {
+    private struct ScreenSnapshot: Sendable {
+        let displayID: CGDirectDisplayID
+        let frame: CGRect
+        let scale: CGFloat
+    }
+
     private let settingsStore: SettingsStore
     private let backupService: BackupService
     private let clipboardService: ClipboardService
@@ -17,9 +25,9 @@ final class ScreenshotService: NSObject {
     private let fileManager: FileManager
     private let desktopDirectory: URL
 
+    private var selectionOverlay: SelectionOverlay?
     private var activeWorkflow: ScreenshotWorkflowController?
-    private var isSystemCaptureInProgress = false
-    private var systemCaptureProcess: Process?
+    private var isCaptureInProgress = false
 
     init(settingsStore: SettingsStore,
          backupService: BackupService,
@@ -45,7 +53,6 @@ final class ScreenshotService: NSObject {
 
     // MARK: - Public API
 
-    /// Starts an area capture using the native macOS area picker.
     func captureArea() {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
@@ -54,14 +61,21 @@ final class ScreenshotService: NSObject {
             return
         }
 
-        guard canStartNewCapture() else {
+        if selectionOverlay != nil {
+            return
+        }
+        guard canStartNewCapture(), ensureScreenCapturePermission() else {
             return
         }
 
-        beginSystemAreaCapture()
+        NSApp.activate(ignoringOtherApps: true)
+        let overlay = SelectionOverlay()
+        overlay.delegate = self
+        selectionOverlay = overlay
+        overlay.beginSelection()
     }
 
-    /// Captures the full contents of the display under the mouse using macOS screencapture.
+    /// Captures the full contents of the display under the mouse.
     func captureFullScreen() {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
@@ -70,11 +84,18 @@ final class ScreenshotService: NSObject {
             return
         }
 
-        guard canStartNewCapture() else {
+        if selectionOverlay != nil {
+            selectionOverlay?.cancelSelection()
+            selectionOverlay = nil
+        }
+        guard canStartNewCapture(), ensureScreenCapturePermission() else {
+            return
+        }
+        guard let screen = screenUnderMouse() ?? menuBarScreen() ?? NSScreen.main ?? NSScreen.screens.first else {
             return
         }
 
-        beginSystemFullScreenCapture()
+        captureRegion(in: screen.frame, on: screen)
     }
 
     /// Starts the rename/note flow for an already-saved image.
@@ -87,8 +108,6 @@ final class ScreenshotService: NSObject {
         }
 
         guard activeWorkflow == nil else {
-            // Ignore requests while a workflow is active; avoid modal alerts that can
-            // wedge the UI if the app isn't frontmost.
             return
         }
 
@@ -109,10 +128,8 @@ final class ScreenshotService: NSObject {
         workflow.start()
     }
 
-    /// Single shared "busy gate" for user commands.
-    /// If true, other commands should be ignored to avoid wedging UI state.
     var isBusyForUserCommands: Bool {
-        isSystemCaptureInProgress || activeWorkflow != nil
+        isCaptureInProgress || activeWorkflow != nil || selectionOverlay != nil
     }
 
     /// Saves an arbitrary image to the Desktop using the current settings
@@ -146,169 +163,142 @@ final class ScreenshotService: NSObject {
         return url
     }
 
-    // MARK: - Internal capture pipeline
+    // MARK: - Capture pipeline
 
     private func canStartNewCapture() -> Bool {
-        if isSystemCaptureInProgress {
+        if isCaptureInProgress {
             return false
         }
         if activeWorkflow != nil {
-            // Do not present a modal NSAlert here.
-            //
-            // `NSAlert.runModal()` can create a hidden app-modal session when the app is not
-            // frontmost (common for an accessory menu bar app), which makes the current
-            // rename/note panel appear "stuck" and unfocusable. While a workflow is active,
-            // we simply ignore new capture triggers.
             return false
         }
         return true
     }
 
-    private func beginSystemAreaCapture() {
-        beginSystemCapture(
-            arguments: ["-i", "-x"],
-            onCompletion: { [weak self] status, tempURL in
-                self?.finishSystemAreaCapture(tempURL: tempURL, terminationStatus: status)
-            }
-        )
-    }
-
-    private func beginSystemFullScreenCapture() {
-        let targetScreen = screenUnderMouse() ?? menuBarScreen() ?? NSScreen.main ?? NSScreen.screens.first
-        let arguments = fullScreenCaptureArguments(for: targetScreen)
-        beginSystemCapture(
-            arguments: arguments,
-            onCompletion: { [weak self] status, tempURL in
-                self?.finishSystemFullScreenCapture(tempURL: tempURL,
-                                                   terminationStatus: status,
-                                                   targetScreen: targetScreen)
-            }
-        )
-    }
-
-    private func beginSystemCapture(arguments: [String],
-                                    onCompletion: @escaping (Int32, URL) -> Void) {
-        let tempURL = makeTemporaryScreenshotURL()
-        isSystemCaptureInProgress = true
-
-        runScreencapture(arguments: arguments + [tempURL.path]) { [weak self] status in
-            guard let self = self else { return }
-            self.isSystemCaptureInProgress = false
-            onCompletion(status, tempURL)
+    private func ensureScreenCapturePermission() -> Bool {
+        if CGPreflightScreenCaptureAccess() {
+            return true
         }
+
+        guard CGRequestScreenCaptureAccess() else {
+            presentScreenRecordingPermissionError()
+            return false
+        }
+        return true
     }
 
-    private func finishSystemAreaCapture(tempURL: URL, terminationStatus: Int32) {
-        if terminationStatus == -1 {
-            try? fileManager.removeItem(at: tempURL)
-            presentError(title: "Screenshot failed", message: "Could not start native area capture.")
+    private func captureRegion(in rect: CGRect, on screen: NSScreen) {
+        if !Thread.isMainThread {
+            let screenID = screen.displayID
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let targetScreen = self.screenForDisplayID(screenID) ?? NSScreen.main ?? NSScreen.screens.first
+                guard let targetScreen else { return }
+                self.captureRegion(in: rect, on: targetScreen)
+            }
             return
         }
 
-        guard terminationStatus == 0 else {
-            try? fileManager.removeItem(at: tempURL)
-            if !CGPreflightScreenCaptureAccess() {
-                presentScreenRecordingPermissionError()
-                return
-            }
-            // User cancelled the macOS picker.
+        guard !isCaptureInProgress else {
+            return
+        }
+        guard let displayID = screen.displayID else {
+            presentError(title: "Screenshot failed", message: "Unable to determine display ID.")
             return
         }
 
-        switch loadTemporaryImage(at: tempURL) {
-        case .missing:
-            // User cancelled picker without capturing.
-            return
-        case .unreadable:
-            presentError(title: "Screenshot failed", message: "Could not read captured image.")
-            return
-        case .loaded(let image):
+        let snapshot = ScreenSnapshot(displayID: displayID,
+                                      frame: screen.frame,
+                                      scale: screen.backingScaleFactor)
+        isCaptureInProgress = true
+
+        Task { [weak self] in
+            guard let self else { return }
+
             do {
-                let url = try saveImageToDesktop(image)
-                soundPlayer.playCaptureSound()
-                let targetScreen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
-                    ?? NSScreen.main
-                    ?? NSScreen.screens.first
-                beginPostCaptureFlow(forExistingFileAt: url, on: targetScreen)
+                let cgImage = try await self.captureCGImage(rect: rect, on: snapshot)
+                try await MainActor.run {
+                    defer { self.isCaptureInProgress = false }
+                    try self.finishCapture(with: cgImage, onDisplayID: snapshot.displayID)
+                }
             } catch {
-                presentError(title: "Screenshot failed", message: error.localizedDescription)
+                await MainActor.run {
+                    self.isCaptureInProgress = false
+                    self.handleCaptureFailure(error)
+                }
             }
         }
     }
 
-    private func finishSystemFullScreenCapture(tempURL: URL,
-                                               terminationStatus: Int32,
-                                               targetScreen: NSScreen?) {
-        if terminationStatus == -1 {
-            try? fileManager.removeItem(at: tempURL)
-            presentError(title: "Screenshot failed", message: "Could not start native full-screen capture.")
-            return
-        }
-
-        guard terminationStatus == 0 else {
-            try? fileManager.removeItem(at: tempURL)
-            if !CGPreflightScreenCaptureAccess() {
-                presentScreenRecordingPermissionError()
-            } else {
-                presentError(title: "Screenshot failed", message: "System capture exited with status \(terminationStatus).")
-            }
-            return
-        }
-
-        switch loadTemporaryImage(at: tempURL) {
-        case .missing:
-            presentError(title: "Screenshot failed", message: "Captured image file not found.")
-            return
-        case .unreadable:
-            presentError(title: "Screenshot failed", message: "Could not read captured image.")
-            return
-        case .loaded(let image):
-            do {
-                let url = try saveImageToDesktop(image)
-                soundPlayer.playCaptureSound()
-                beginPostCaptureFlow(forExistingFileAt: url, on: targetScreen)
-            } catch {
-                presentError(title: "Screenshot failed", message: error.localizedDescription)
-            }
-        }
+    private func finishCapture(with cgImage: CGImage, onDisplayID displayID: CGDirectDisplayID) throws {
+        let imageSize = NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
+        let image = NSImage(cgImage: cgImage, size: imageSize)
+        let url = try saveImageToDesktop(image)
+        soundPlayer.playCaptureSound()
+        beginPostCaptureFlow(forExistingFileAt: url, on: screenForDisplayID(displayID))
     }
 
-    private func makeTemporaryScreenshotURL() -> URL {
-        fileManager.temporaryDirectory
-            .appendingPathComponent("zoomies-\(UUID().uuidString)")
-            .appendingPathExtension("png")
-    }
+    private func captureCGImage(rect: CGRect, on screen: ScreenSnapshot) async throws -> CGImage {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        guard let display = content.displays.first(where: { $0.displayID == screen.displayID }) else {
+            throw NSError(domain: "ScreenshotService",
+                          code: -3,
+                          userInfo: [NSLocalizedDescriptionKey: "No display found for capture."])
+        }
+        guard let captureRect = ScreenshotServiceCoreLogic.screenCaptureRect(rectInScreenPoints: rect,
+                                                                             screenFrame: screen.frame,
+                                                                             scale: screen.scale) else {
+            throw NSError(domain: "ScreenshotService",
+                          code: -4,
+                          userInfo: [NSLocalizedDescriptionKey: "Selected area is outside the display bounds."])
+        }
 
-    private func runScreencapture(arguments: [String], completion: @escaping (Int32) -> Void) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = arguments
-        systemCaptureProcess = process
+        let configuration = SCStreamConfiguration()
+        configuration.sourceRect = captureRect.pointRect
+        configuration.width = Int(captureRect.pixelRect.width)
+        configuration.height = Int(captureRect.pixelRect.height)
+        configuration.showsCursor = true
+        configuration.scalesToFit = false
 
-        process.terminationHandler = { [weak self] process in
-            DispatchQueue.main.async {
-                self?.systemCaptureProcess = nil
-                completion(process.terminationStatus)
+        let excludedApplications = content.applications.filter { application in
+            application.processID == ProcessInfo.processInfo.processIdentifier
+        }
+        let filter = SCContentFilter(display: display,
+                                     excludingApplications: excludedApplications,
+                                     exceptingWindows: [])
+
+        return try await withCheckedThrowingContinuation { continuation in
+            SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration) { image, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if let image {
+                    continuation.resume(returning: image)
+                } else {
+                    continuation.resume(throwing: NSError(domain: "ScreenshotService",
+                                                          code: -5,
+                                                          userInfo: [NSLocalizedDescriptionKey: "No image captured."]))
+                }
             }
         }
+    }
 
-        do {
-            try process.run()
-        } catch {
-            systemCaptureProcess = nil
-            completion(-1)
+    // MARK: - Error handling
+
+    private func handleCaptureFailure(_ error: Error) {
+        if isPermissionFailure(error) {
+            presentScreenRecordingPermissionError()
+            return
         }
+
+        presentError(title: "Screenshot failed", message: (error as NSError).localizedDescription)
     }
 
-    private func loadTemporaryImage(at url: URL) -> TemporaryImageResult {
-        let result = ScreenshotServiceCoreLogic.loadTemporaryImage(
-            at: url,
-            fileExists: { [fileManager] path in fileManager.fileExists(atPath: path) },
-            loadImage: { path in NSImage(contentsOf: path) }
-        )
-        try? fileManager.removeItem(at: url)
-        return result
+    private func isPermissionFailure(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        return nsError.domain == SCStreamErrorDomain && nsError.code == -3801
     }
+
+    // MARK: - Helpers
 
     private func screenUnderMouse() -> NSScreen? {
         NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
@@ -316,45 +306,15 @@ final class ScreenshotService: NSObject {
 
     private func menuBarScreen() -> NSScreen? {
         let mainDisplayID = CGMainDisplayID()
-        return NSScreen.screens.first { screen in
-            screenDisplayID(screen) == mainDisplayID
-        }
+        return NSScreen.screens.first(where: { $0.displayID == mainDisplayID })
     }
 
-    private func fullScreenCaptureArguments(for screen: NSScreen?) -> [String] {
-        guard let displayID = screen.flatMap(screenDisplayID),
-              let displayNumber = screencaptureDisplayNumber(for: displayID) else {
-            return ["-x", "-m"]
-        }
-        return ["-x", "-D\(displayNumber)"]
-    }
-
-    private func screencaptureDisplayNumber(for targetDisplayID: CGDirectDisplayID) -> Int? {
-        let maxDisplayCount: UInt32 = 32
-        var displayIDs = Array(repeating: CGDirectDisplayID(), count: Int(maxDisplayCount))
-        var actualDisplayCount: UInt32 = 0
-
-        let result = CGGetActiveDisplayList(maxDisplayCount, &displayIDs, &actualDisplayCount)
-        guard result == .success else {
+    private func screenForDisplayID(_ displayID: CGDirectDisplayID?) -> NSScreen? {
+        guard let displayID else {
             return nil
         }
-
-        let activeDisplayIDs = Array(displayIDs.prefix(Int(actualDisplayCount)))
-        return ScreenshotServiceCoreLogic.screencaptureDisplayNumber(
-            for: targetDisplayID,
-            activeDisplayIDs: activeDisplayIDs,
-            mainDisplayID: CGMainDisplayID()
-        )
+        return NSScreen.screens.first(where: { $0.displayID == displayID })
     }
-
-    private func screenDisplayID(_ screen: NSScreen) -> CGDirectDisplayID? {
-        guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-            return nil
-        }
-        return CGDirectDisplayID(screenNumber.uint32Value)
-    }
-
-    // MARK: - Helpers
 
     private func resizedImageIfNeeded(_ image: NSImage, maxWidth: Int) -> NSImage {
         ScreenshotServiceCoreLogic.resizedImageIfNeeded(image, maxWidth: maxWidth)
@@ -374,20 +334,49 @@ final class ScreenshotService: NSObject {
 
     private func presentScreenRecordingPermissionError() {
         let title = "Screen Recording Permission Required"
-        let message = "Zoomies needs Screen Recording permission to take screenshots.\n\nOpen System Settings → Privacy & Security → Screen Recording, enable Zoomies, then quit and reopen the app."
+        let message = "Zoomies needs Screen Recording permission to take screenshots.\n\nOpen System Settings -> Privacy & Security -> Screen Recording, enable Zoomies, then try again."
         AlertPresenter.presentWarningWithSettingsButton(title: title, message: message)
     }
 
     private func presentError(title: String, message: String) {
-        presentAlert(title: title, message: message)
-    }
-
-    private func presentAlert(title: String, message: String) {
         AlertPresenter.presentWarning(title: title, message: message)
     }
 }
 
-// ScreenshotService mutates UI state on the main thread and capture callbacks
-// are hopped back to the main queue. We mark it @unchecked Sendable to silence
-// Swift 6 Sendable warnings for queue hops.
 extension ScreenshotService: @unchecked Sendable {}
+
+extension ScreenshotService: SelectionOverlayDelegate {
+    func selectionOverlay(_ overlay: SelectionOverlay,
+                          didFinishWith rectInScreenCoordinates: CGRect?,
+                          onScreen screen: NSScreen) {
+        if !Thread.isMainThread {
+            let screenID = screen.displayID
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let targetScreen = self.screenForDisplayID(screenID) ?? NSScreen.main ?? NSScreen.screens.first
+                guard let targetScreen else { return }
+                self.handleSelection(rect: rectInScreenCoordinates, on: targetScreen)
+            }
+            return
+        }
+
+        handleSelection(rect: rectInScreenCoordinates, on: screen)
+    }
+
+    private func handleSelection(rect: CGRect?, on screen: NSScreen) {
+        selectionOverlay = nil
+        guard let rect else {
+            return
+        }
+        captureRegion(in: rect, on: screen)
+    }
+}
+
+private extension NSScreen {
+    var displayID: CGDirectDisplayID? {
+        guard let screenNumber = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+        return CGDirectDisplayID(screenNumber.uint32Value)
+    }
+}
