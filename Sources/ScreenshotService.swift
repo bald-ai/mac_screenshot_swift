@@ -285,7 +285,13 @@ final class ScreenshotService: NSObject {
     // MARK: - Error handling
 
     private func handleCaptureFailure(_ error: Error) {
-        presentError(title: "Screenshot failed", message: (error as NSError).localizedDescription)
+        let nsError = error as NSError
+        // macOS already owns the native Screen Recording permission flow.
+        // When the user declines capture authorization, avoid stacking our own alert on top.
+        if ScreenshotServiceCoreLogic.shouldSuppressCaptureFailureAlert(nsError) {
+            return
+        }
+        presentError(title: "Screenshot failed", message: nsError.localizedDescription)
     }
 
     // MARK: - Helpers

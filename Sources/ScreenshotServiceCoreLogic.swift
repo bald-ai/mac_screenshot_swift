@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import ScreenCaptureKit
 
 struct ScreenCaptureRect {
     let pointRect: CGRect
@@ -7,6 +8,10 @@ struct ScreenCaptureRect {
 }
 
 enum ScreenshotServiceCoreLogic {
+    static func shouldSuppressCaptureFailureAlert(_ error: NSError) -> Bool {
+        error.domain == SCStreamErrorDomain && error.code == Int(SCStreamError.userDeclined.rawValue)
+    }
+
     static func resizedImageIfNeeded(_ image: NSImage, maxWidth: Int) -> NSImage {
         guard maxWidth > 0 else { return image }
 

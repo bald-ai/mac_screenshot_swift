@@ -1,8 +1,29 @@
 import XCTest
 import AppKit
+import ScreenCaptureKit
 @testable import Zoomies
 
 final class ScreenshotServiceCoreLogicTests: XCTestCase {
+    func testShouldSuppressCaptureFailureAlertForUserDeclinedPermission() {
+        let error = NSError(domain: SCStreamErrorDomain,
+                            code: Int(SCStreamError.userDeclined.rawValue),
+                            userInfo: nil)
+
+        XCTAssertTrue(ScreenshotServiceCoreLogic.shouldSuppressCaptureFailureAlert(error))
+    }
+
+    func testShouldNotSuppressCaptureFailureAlertForOtherErrors() {
+        let screenCaptureKitError = NSError(domain: SCStreamErrorDomain,
+                                            code: Int(SCStreamError.failedToStart.rawValue),
+                                            userInfo: nil)
+        let appError = NSError(domain: "ScreenshotService",
+                               code: -5,
+                               userInfo: nil)
+
+        XCTAssertFalse(ScreenshotServiceCoreLogic.shouldSuppressCaptureFailureAlert(screenCaptureKitError))
+        XCTAssertFalse(ScreenshotServiceCoreLogic.shouldSuppressCaptureFailureAlert(appError))
+    }
+
     func testResizedImageIfNeededKeepsSmallImage() {
         let image = TestSupport.solidImage(width: 80, height: 40)
         let resized = ScreenshotServiceCoreLogic.resizedImageIfNeeded(image, maxWidth: 100)
