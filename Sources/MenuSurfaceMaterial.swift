@@ -3,11 +3,7 @@ import AppKit
 /// Shared menu-like visual surface so windows and panels use a consistent native background.
 enum MenuSurfaceMaterial {
     static func apply(to view: NSVisualEffectView) {
-        if #available(macOS 10.14, *) {
-            view.material = .menu
-        } else {
-            view.material = .popover
-        }
+        view.material = .menu
         view.blendingMode = .withinWindow
         view.state = .active
     }

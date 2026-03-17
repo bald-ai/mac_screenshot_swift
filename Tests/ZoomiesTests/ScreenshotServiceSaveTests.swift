@@ -7,6 +7,26 @@ private final class NoopSoundPlayer: ScreenshotSoundPlaying {
 }
 
 final class ScreenshotServiceSaveTests: XCTestCase {
+    func testFreshServiceAllowsCaptureEntrypointsWithoutUpfrontPermissionGate() throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.removeIfExists(root) }
+
+        let settingsStore = SettingsStore(fileManager: .default, fileURL: root.appendingPathComponent("settings.json"))
+        settingsStore.load()
+
+        let backup = BackupService(fileManager: .default, backupsDirectory: root.appendingPathComponent("backups"))
+        let clipboard = ClipboardService(fileManager: .default, cacheDirectory: root.appendingPathComponent("clipboard"))
+        let service = ScreenshotService(settingsStore: settingsStore,
+                                        backupService: backup,
+                                        clipboardService: clipboard,
+                                        fileManager: .default,
+                                        desktopDirectory: root.appendingPathComponent("Desktop", isDirectory: true),
+                                        soundPlayer: NoopSoundPlayer())
+
+        XCTAssertTrue(service.canStartAreaCapture())
+        XCTAssertTrue(service.canStartFullScreenCapture())
+    }
+
     func testSaveImageToDesktopWritesFileAndIncrementsCounter() throws {
         let root = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.removeIfExists(root) }

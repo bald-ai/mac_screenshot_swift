@@ -662,8 +662,7 @@ final class ScreenshotWorkflowController {
         }()
 
         let sourceImage = flattenedToEditorBackgroundIfNeeded(image, for: fileType)
-        guard let tiff = sourceImage.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiff) else { return nil }
+        guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: sourceImage) else { return nil }
 
         let properties: [NSBitmapImageRep.PropertyKey: Any]
         if fileType == .jpeg {
@@ -753,10 +752,6 @@ final class FloatingInputPanel: NSPanel {
         // Ensure window is properly initialized
         self.isReleasedWhenClosed = false
         
-    }
-
-    override func keyDown(with event: NSEvent) {
-        super.keyDown(with: event)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

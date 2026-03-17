@@ -377,7 +377,6 @@ final class EditorWindowController: NSWindowController {
         let button = makeIconButton(symbol: symbol, toolTip: toolTip)
         button.target = self
         button.action = #selector(toolButtonPressed(_:))
-        button.tag = toolTag(for: tool)
         toolButtons[tool] = button
         return button
     }
@@ -408,22 +407,9 @@ final class EditorWindowController: NSWindowController {
     }
 
     private func makeSaveButton() -> NSButton {
-        let button = NSButton(frame: .zero)
-        button.target = self
-        button.action = #selector(savePressed)
-        button.isBordered = false
-        button.bezelStyle = .shadowlessSquare
-        button.refusesFirstResponder = true
-        button.image = NSImage(systemSymbolName: "tray.and.arrow.down", accessibilityDescription: nil)
-        button.imagePosition = .imageOnly
-        button.contentTintColor = NSColor.labelColor
-        button.wantsLayer = true
-        button.layer?.cornerRadius = 6
-        button.layer?.backgroundColor = NSColor.clear.cgColor
-        button.toolTip = "Save (Enter)"
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.widthAnchor.constraint(equalToConstant: 26).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        let button = makeActionButton(symbol: "tray.and.arrow.down",
+                                      toolTip: "Save (Enter)",
+                                      action: #selector(savePressed))
         button.title = ""
         return button
     }
@@ -509,33 +495,10 @@ final class EditorWindowController: NSWindowController {
         updateColorPickerSelection()
     }
 
-    private func toolTag(for tool: EditorTool) -> Int {
-        switch tool {
-        case .pen: return 0
-        case .arrow: return 1
-        case .rectangle: return 2
-        case .ellipse: return 3
-        case .text: return 4
-        case .selection: return 5
-        }
-    }
-
-    private func toolForTag(_ tag: Int) -> EditorTool? {
-        switch tag {
-        case 0: return .pen
-        case 1: return .arrow
-        case 2: return .rectangle
-        case 3: return .ellipse
-        case 4: return .text
-        case 5: return .selection
-        default: return nil
-        }
-    }
-
     // MARK: - Toolbar actions
 
     @objc private func toolButtonPressed(_ sender: NSButton) {
-        guard let tool = toolForTag(sender.tag) else { return }
+        guard let tool = toolButtons.first(where: { $0.value === sender })?.key else { return }
         selectTool(tool)
     }
 
@@ -637,14 +600,14 @@ final class EditorWindowController: NSWindowController {
         finish(with: .saveOnly)
     }
 
-	    @objc private func deletePressed() {
-	        // Match the Escape key behavior (configured per editor session).
-	        if escapeFinalActionCommand == .closeOnly {
-	            finish(with: .closeOnly)
-	        } else {
-	            finish(with: .deleteOnly)
-	        }
-	    }
+    @objc private func deletePressed() {
+        // Match the Escape key behavior (configured per editor session).
+        if escapeFinalActionCommand == .closeOnly {
+            finish(with: .closeOnly)
+        } else {
+            finish(with: .deleteOnly)
+        }
+    }
 
     // MARK: - Key commands from canvas
 

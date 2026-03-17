@@ -1,4 +1,5 @@
 import AppKit
+import Carbon
 
 /// High-level tool selection for the editor canvas.
 /// Exposed separately so other parts of the app can talk to the canvas
@@ -1239,7 +1240,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
         if isColorPickerOpen {
-            if let chars = event.characters, let index = czechKeyToColorIndex[chars] {
+            if let index = Self.colorPickerKeyCodeToColorIndex[event.keyCode] {
                 onKeyCommand?(.selectColor(index: index))
                 onKeyCommand?(.colorPickerClose)
                 return
@@ -1433,16 +1434,21 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         return nil
     }
 
-    private var czechKeyToColorIndex: [String: Int] {
-        [
-            "+": 0,
-            "ě": 1,
-            "š": 2,
-            "č": 3,
-            "ř": 4,
-            "ž": 5
-        ]
-    }
+    // Use hardware key codes so 1-6 selection works regardless of the active keyboard layout.
+    private static let colorPickerKeyCodeToColorIndex: [UInt16: Int] = [
+        UInt16(kVK_ANSI_1): 0,
+        UInt16(kVK_ANSI_2): 1,
+        UInt16(kVK_ANSI_3): 2,
+        UInt16(kVK_ANSI_4): 3,
+        UInt16(kVK_ANSI_5): 4,
+        UInt16(kVK_ANSI_6): 5,
+        UInt16(kVK_ANSI_Keypad1): 0,
+        UInt16(kVK_ANSI_Keypad2): 1,
+        UInt16(kVK_ANSI_Keypad3): 2,
+        UInt16(kVK_ANSI_Keypad4): 3,
+        UInt16(kVK_ANSI_Keypad5): 4,
+        UInt16(kVK_ANSI_Keypad6): 5
+    ]
 }
 
 private final class EditorInlineTextView: NSTextView {

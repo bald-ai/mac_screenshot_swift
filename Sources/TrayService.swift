@@ -64,15 +64,8 @@ final class TrayService {
             menu.popUp(positioning: nil, at: location, in: button)
         }
 
-        switch event.type {
-        case .rightMouseUp:
+        if event.type == .leftMouseUp || event.type == .rightMouseUp {
             showMenu()
-
-        case .leftMouseUp:
-            showMenu()
-
-        default:
-            break
         }
     }
 

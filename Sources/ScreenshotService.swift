@@ -64,7 +64,7 @@ final class ScreenshotService: NSObject {
         if selectionOverlay != nil {
             return
         }
-        guard canStartNewCapture(), ensureScreenCapturePermission() else {
+        guard canStartAreaCapture() else {
             return
         }
 
@@ -88,7 +88,7 @@ final class ScreenshotService: NSObject {
             selectionOverlay?.cancelSelection()
             selectionOverlay = nil
         }
-        guard canStartNewCapture(), ensureScreenCapturePermission() else {
+        guard canStartFullScreenCapture() else {
             return
         }
         guard let screen = screenUnderMouse() ?? menuBarScreen() ?? NSScreen.main ?? NSScreen.screens.first else {
@@ -175,16 +175,15 @@ final class ScreenshotService: NSObject {
         return true
     }
 
-    private func ensureScreenCapturePermission() -> Bool {
-        if CGPreflightScreenCaptureAccess() {
-            return true
-        }
-
-        guard CGRequestScreenCaptureAccess() else {
-            presentScreenRecordingPermissionError()
+    func canStartAreaCapture() -> Bool {
+        if selectionOverlay != nil {
             return false
         }
-        return true
+        return canStartNewCapture()
+    }
+
+    func canStartFullScreenCapture() -> Bool {
+        canStartNewCapture()
     }
 
     private func captureRegion(in rect: CGRect, on screen: NSScreen) {
@@ -232,6 +231,7 @@ final class ScreenshotService: NSObject {
 
     private func finishCapture(with cgImage: CGImage, onDisplayID displayID: CGDirectDisplayID) throws {
         let imageSize = NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
+        NSLog("ScreenshotService: saving capture %d×%d px", cgImage.width, cgImage.height)
         let image = NSImage(cgImage: cgImage, size: imageSize)
         let url = try saveImageToDesktop(image)
         soundPlayer.playCaptureSound()
@@ -285,17 +285,7 @@ final class ScreenshotService: NSObject {
     // MARK: - Error handling
 
     private func handleCaptureFailure(_ error: Error) {
-        if isPermissionFailure(error) {
-            presentScreenRecordingPermissionError()
-            return
-        }
-
         presentError(title: "Screenshot failed", message: (error as NSError).localizedDescription)
-    }
-
-    private func isPermissionFailure(_ error: Error) -> Bool {
-        let nsError = error as NSError
-        return nsError.domain == SCStreamErrorDomain && nsError.code == -3801
     }
 
     // MARK: - Helpers
@@ -330,12 +320,6 @@ final class ScreenshotService: NSObject {
             baseName: baseName,
             fileExists: { [fileManager] path in fileManager.fileExists(atPath: path) }
         )
-    }
-
-    private func presentScreenRecordingPermissionError() {
-        let title = "Screen Recording Permission Required"
-        let message = "Zoomies needs Screen Recording permission to take screenshots.\n\nOpen System Settings -> Privacy & Security -> Screen Recording, enable Zoomies, then try again."
-        AlertPresenter.presentWarningWithSettingsButton(title: title, message: message)
     }
 
     private func presentError(title: String, message: String) {

@@ -2,6 +2,8 @@
 
 # SwiftPM / Swift compiler build output (includes index store databases like data.mdb).
 .build/
+.tmp_cache/
+.tmp_home/
 
 # Xcode / SourceKit / derived artifacts (optional, but usually safe to ignore).
 DerivedData/
@@ -21,3 +23,7 @@ xcuserdata/
 
 # Logs.
 *.log
+
+# Repo-local planning / scratch artifacts.
+agent_tasks/
+RELEASE_TODO.md

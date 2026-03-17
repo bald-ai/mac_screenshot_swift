@@ -16,7 +16,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         backupService = BackupService()
         clipboardService = ClipboardService()
         
-        // Keep the cache directories tidy across dev/test loops (matches legacy app behavior).
+        // Intentional: clipboard cache is only needed to keep Cmd+Delete paste working
+        // within the current app session. Purging on launch prevents stale cached files
+        // from accumulating indefinitely across launches.
         backupService.purgeAllBackups()
         clipboardService.purgeAllCachedFiles()
 
@@ -40,6 +42,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showWelcomeInfo() {
         DispatchQueue.main.async {
+            // Intentional product decision: keep the explicit first-run-style welcome copy
+            // visible on launch instead of replacing it with a softer or hidden help surface.
             let alert = NSAlert()
             alert.alertStyle = .informational
             alert.messageText = "🚨🚨🚨 READ THIS YOU DUMFUS OR YOU WILL BE CONFUSED AS FUCK 🚨🚨🚨"
