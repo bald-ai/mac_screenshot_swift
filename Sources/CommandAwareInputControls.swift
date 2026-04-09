@@ -1,6 +1,6 @@
 import AppKit
 
-enum InputKeyCommand {
+enum KeyCommand {
     case enter
     case commandEnter
     case commandBackspace
@@ -9,7 +9,7 @@ enum InputKeyCommand {
     case shiftTab
 }
 
-func interpretInputKeyCommand(from event: NSEvent) -> InputKeyCommand? {
+func interpretKeyCommand(from event: NSEvent) -> KeyCommand? {
     let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
     switch event.keyCode {
@@ -27,7 +27,7 @@ func interpretInputKeyCommand(from event: NSEvent) -> InputKeyCommand? {
 }
 
 final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
-    var keyCommandHandler: ((InputKeyCommand) -> Void)?
+    var keyCommandHandler: ((KeyCommand) -> Void)?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -44,7 +44,7 @@ final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
     }
 
     override func keyDown(with event: NSEvent) {
-        if let command = interpretInputKeyCommand(from: event) {
+        if let command = interpretKeyCommand(from: event) {
             keyCommandHandler?(command)
         } else {
             super.keyDown(with: event)
@@ -53,7 +53,7 @@ final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         if let event = NSApp.currentEvent,
-           let command = interpretInputKeyCommand(from: event) {
+           let command = interpretKeyCommand(from: event) {
             keyCommandHandler?(command)
             return true
         }
@@ -78,10 +78,10 @@ final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
 }
 
 class CommandAwareTextView: NSTextView {
-    var keyCommandHandler: ((InputKeyCommand) -> Void)?
+    var keyCommandHandler: ((KeyCommand) -> Void)?
 
     override func keyDown(with event: NSEvent) {
-        if let command = interpretInputKeyCommand(from: event) {
+        if let command = interpretKeyCommand(from: event) {
             keyCommandHandler?(command)
         } else {
             super.keyDown(with: event)
