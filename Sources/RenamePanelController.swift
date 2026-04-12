@@ -54,7 +54,7 @@ final class RenamePanelController: NSWindowController {
         let titleLabel = NSTextField(labelWithString: "Filename")
         titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
 
-        textField.stringValue = initialFilename
+        textField.stringValue = WorkflowFilenameLogic.editableFilename(initialFilename)
         textField.isBordered = true
         textField.focusRingType = .default
         textField.bezelStyle = .roundedBezel
@@ -69,16 +69,15 @@ final class RenamePanelController: NSWindowController {
             }
             let rawValue = self.textField.stringValue
             let sanitized = self.sanitizedFilename(from: rawValue)
-            self.textField.stringValue = sanitized
+            self.textField.stringValue = WorkflowFilenameLogic.editableFilename(sanitized)
 
-            
             switch command {
             case .enter:
-                self.onAction?(.save(newName: sanitized))
+                self.onAction?(.save(newName: self.textField.stringValue))
             case .commandEnter:
-                self.onAction?(.copyAndSave(newName: sanitized))
+                self.onAction?(.copyAndSave(newName: self.textField.stringValue))
             case .commandBackspace:
-                self.onAction?(.copyAndDelete(newName: sanitized))
+                self.onAction?(.copyAndDelete(newName: self.textField.stringValue))
             case .escape:
                 if self.escapeKeyDeletesFile {
                     self.onAction?(.delete)
@@ -86,7 +85,7 @@ final class RenamePanelController: NSWindowController {
                     self.onAction?(.close)
                 }
             case .tab:
-                self.onAction?(.goToNote(newName: sanitized))
+                self.onAction?(.goToNote(newName: self.textField.stringValue))
             case .shiftTab:
                 break
             }

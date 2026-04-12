@@ -2,6 +2,13 @@ import Foundation
 import CoreGraphics
 
 enum WorkflowFilenameLogic {
+    static func editableFilename(_ fullName: String) -> String {
+        let ns = fullName as NSString
+        let ext = ns.pathExtension
+        guard !ext.isEmpty else { return fullName }
+        return ns.deletingPathExtension
+    }
+
     static func sanitizeFilename(_ input: String, preservingExtensionOf url: URL) -> String {
         let ext = url.pathExtension
 
@@ -22,6 +29,10 @@ enum WorkflowFilenameLogic {
             return finalBase
         }
         return "\(finalBase).\(ext)"
+    }
+
+    static func isSameFilename(_ input: String, as url: URL) -> Bool {
+        sanitizeFilename(input, preservingExtensionOf: url) == url.lastPathComponent
     }
 
     static func uniqueURL(forProposedName name: String, in directory: URL, fileExists: (String) -> Bool) -> URL {

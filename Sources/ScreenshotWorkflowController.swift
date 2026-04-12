@@ -161,8 +161,11 @@ final class ScreenshotWorkflowController {
 
     private func applyRenameIfNeeded(newName: String) -> Bool {
         let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let currentName = fileURL.lastPathComponent
-        if trimmed.isEmpty || trimmed == currentName {
+        if trimmed.isEmpty {
+            return true
+        }
+
+        if WorkflowFilenameLogic.isSameFilename(trimmed, as: fileURL) {
             return true
         }
 
