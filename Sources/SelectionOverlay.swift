@@ -60,6 +60,11 @@ final class SelectionOverlay: NSObject {
 
         window = overlayWindow
         selectionView = overlayView
+
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(handleAppDeactivation),
+                                               name: NSApplication.didResignActiveNotification,
+                                               object: nil)
     }
 
     func cancelSelection() {
@@ -93,7 +98,10 @@ final class SelectionOverlay: NSObject {
         delegate?.selectionOverlay(self, didFinishWith: rectInScreenCoordinates, onScreen: screen)
     }
 
-private func tearDown() {
+    private func tearDown() {
+        NotificationCenter.default.removeObserver(self,
+                                                   name: NSApplication.didResignActiveNotification,
+                                                   object: nil)
         selectionView?.releaseCursor()
         window?.orderOut(nil)
         window = nil
@@ -101,7 +109,9 @@ private func tearDown() {
         screen = nil
     }
 
-    
+    @objc private func handleAppDeactivation() {
+        cancelSelection()
+    }
 }
 
 private final class SelectionOverlayWindow: NSWindow {
@@ -118,8 +128,6 @@ private final class SelectionOverlayView: NSView {
     private var cursorPushed = false
 
     override var acceptsFirstResponder: Bool { true }
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
