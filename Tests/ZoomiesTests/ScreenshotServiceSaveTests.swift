@@ -7,6 +7,11 @@ private final class NoopSoundPlayer: ScreenshotSoundPlaying {
 }
 
 final class ScreenshotServiceSaveTests: XCTestCase {
+    override func tearDown() {
+        ScreenshotService.resetDebugLoggingForTests()
+        super.tearDown()
+    }
+
     func testFreshServiceAllowsCaptureEntrypointsWithoutUpfrontPermissionGate() throws {
         let root = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.removeIfExists(root) }
@@ -121,5 +126,23 @@ final class ScreenshotServiceSaveTests: XCTestCase {
         let saved = NSImage(contentsOf: output)
         XCTAssertNotNil(saved)
         XCTAssertLessThanOrEqual(saved?.size.width ?? 0, 50)
+    }
+
+    func testAreaDebugSessionResetsPreviousLogContents() throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.removeIfExists(root) }
+
+        let logURL = root.appendingPathComponent("zoomies_debug.log")
+        ScreenshotService.debugLogURLOverride = logURL
+
+        ScreenshotService.startAreaDebugSession(trigger: "first-run")
+        ScreenshotService.dbg("first line")
+        ScreenshotService.startAreaDebugSession(trigger: "second-run")
+        ScreenshotService.dbg("second line")
+
+        let contents = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertTrue(contents.contains("trigger=second-run"))
+        XCTAssertTrue(contents.contains("second line"))
+        XCTAssertFalse(contents.contains("first line"))
     }
 }

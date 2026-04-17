@@ -2,6 +2,7 @@ import AppKit
 
 enum AlertPresenter {
     static func presentWarning(title: String, message: String) {
+        ScreenshotService.dbg("AlertPresenter.presentWarning: title=\(title) message=\(message)")
         let showAlert = {
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -20,6 +21,7 @@ enum AlertPresenter {
 
     static func presentWarningWithSettingsButton(title: String, message: String,
                                                   settingsURL: String = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+        ScreenshotService.dbg("AlertPresenter.presentWarningWithSettingsButton: title=\(title) message=\(message) settingsURL=\(settingsURL)")
         let showAlert = {
             let alert = NSAlert()
             alert.alertStyle = .warning

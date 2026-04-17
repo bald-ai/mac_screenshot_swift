@@ -47,6 +47,13 @@ The app uses `ScreenCaptureKit` (`SCScreenshotManager`) for all screen capture. 
 - **Screen Recording** (for screenshots via ScreenCaptureKit)
 - **Automation / Finder** (for reopening flow on selected Finder image via `Ctrl+Shift+2`)
 
+## Debug Log
+
+Area capture (`Ctrl+Shift+4`) writes a fresh debug trace to `/Users/michalkrsik/Desktop/zoomies_debug.log` for each attempt.
+
+- The file resets at the start of every area-capture attempt so one run does not mix with the previous one.
+- The trace now covers activation, overlay lifecycle, selection conversion, ScreenCaptureKit capture, file save, alerts, and rename-panel handoff.
+
 ## Ideas, Issues, PRs
 
 - Bug? Open an issue.

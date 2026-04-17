@@ -51,6 +51,7 @@ final class ScreenshotWorkflowController {
     // MARK: - Public API
 
     func start() {
+        ScreenshotService.dbg("workflow.start: file=\(fileURL.path) thread=\(Thread.isMainThread ? "main" : "background")")
         // Ensure UI operations happen on main thread
         if Thread.isMainThread {
             presentRenamePanel()
@@ -62,6 +63,7 @@ final class ScreenshotWorkflowController {
     }
 
     func cancel() {
+        ScreenshotService.dbg("workflow.cancel: file=\(fileURL.path)")
         // Close any open panels
         renameController?.close()
         noteController?.close()
@@ -81,6 +83,7 @@ final class ScreenshotWorkflowController {
             }
             return
         }
+        ScreenshotService.dbg("workflow.presentRenamePanel: file=\(fileURL.path) sourceScreen=\(sourceScreen.map { ScreenshotService.describe(screen: $0) } ?? "nil")")
         let controller = RenamePanelController(initialFilename: fileURL.lastPathComponent,
                                                escapeKeyDeletesFile: escapeKeyDeletesFile)
         controller.onAction = { [weak self] action in
@@ -92,6 +95,7 @@ final class ScreenshotWorkflowController {
         // Activating the app can yank the user out of their current Space/fullscreen app
         // (it often looks like being “sent to Desktop”). We want a Spotlight-like panel.
         controller.show()
+        ScreenshotService.dbg("workflow.presentRenamePanel: controller.show() completed windowVisible=\(controller.window?.isVisible ?? false) isKey=\(controller.window?.isKeyWindow ?? false)")
     }
 
     private func presentNotePanel(existingText: String = "") {
@@ -124,6 +128,7 @@ final class ScreenshotWorkflowController {
     // MARK: - Rename handling
 
     private func handleRenameAction(_ action: RenamePanelAction) {
+        ScreenshotService.dbg("workflow.handleRenameAction: action=\(String(describing: action)) file=\(fileURL.path)")
         switch action {
         case .save(let newName):
             guard applyRenameIfNeeded(newName: newName) else {
@@ -197,6 +202,7 @@ final class ScreenshotWorkflowController {
     // MARK: - Note handling
 
     private func handleNoteAction(_ action: NotePanelAction) {
+        ScreenshotService.dbg("workflow.handleNoteAction: action=\(String(describing: action)) file=\(fileURL.path)")
         switch action {
         case .save(let text):
             complete(action: .saveOnly, note: text)
@@ -726,5 +732,9 @@ final class ScreenshotWorkflowController {
 
     private func presentError(title: String, message: String) {
         AlertPresenter.presentWarning(title: title, message: message)
+    }
+
+    var debugFilePathForLogging: String {
+        fileURL.path
     }
 }
