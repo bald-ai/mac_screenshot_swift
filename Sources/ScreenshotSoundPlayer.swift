@@ -8,27 +8,45 @@ final class ScreenshotSoundPlayer {
     private var player: AVAudioPlayer?
     private var playerURL: URL?
     private let fileManager: FileManager
+    private let playerQueue = DispatchQueue(label: "Zoomies.ScreenshotSoundPlayer", qos: .userInitiated)
 
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
 
+    func prewarmCaptureSound() {
+        playerQueue.async { [weak self] in
+            _ = self?.preparePlayerIfNeeded()
+        }
+    }
+
     func playCaptureSound() {
-        // AVAudioPlayer is happier when managed from the main thread in AppKit apps.
-        if !Thread.isMainThread {
-            DispatchQueue.main.async { [weak self] in
-                self?.playCaptureSound()
-            }
+        playerQueue.async { [weak self] in
+            self?.playCaptureSoundOnQueue()
+        }
+    }
+
+    private func playCaptureSoundOnQueue() {
+        guard let player = preparePlayerIfNeeded() else {
             return
         }
 
+        // Restart from the beginning for each capture.
+        player.stop()
+        player.currentTime = 0
+        if player.play() != true {
+            AppLogger.error("Failed to play screenshot sound")
+        }
+    }
+
+    private func preparePlayerIfNeeded() -> AVAudioPlayer? {
         guard let url = BundledResourceLocator.resourceURL(
             named: "screenshot-sound",
             withExtension: "mp3",
             fileManager: fileManager
         ) else {
             AppLogger.error("Screenshot sound resource not found")
-            return
+            return nil
         }
 
         do {
@@ -37,17 +55,12 @@ final class ScreenshotSoundPlayer {
                 player?.prepareToPlay()
                 playerURL = url
             }
-
-            // Restart from the beginning for each capture.
-            player?.stop()
-            player?.currentTime = 0
-            if player?.play() != true {
-                AppLogger.error("Failed to play screenshot sound")
-            }
+            return player
         } catch {
             player = nil
             playerURL = nil
             AppLogger.error("Failed initializing screenshot sound player", error: error)
+            return nil
         }
     }
 }

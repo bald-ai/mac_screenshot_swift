@@ -55,6 +55,7 @@ Area capture (`Ctrl+Shift+4`) writes a fresh debug trace to `/Users/michalkrsik/
 
 - The file resets at the start of every area-capture attempt so one run does not mix with the previous one.
 - The trace now covers activation, overlay lifecycle, selection conversion, ScreenCaptureKit capture, file save, alerts, and rename-panel handoff.
+- Area capture now prefetches `SCShareableContent` when the overlay appears, prewarms the capture sound on launch, and starts the rename flow before the initial disk write finishes.
 
 ## Ideas, Issues, PRs
 

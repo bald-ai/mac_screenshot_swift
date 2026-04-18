@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var screenshotService: ScreenshotService!
     private var clipboardService: ClipboardService!
     private var backupService: BackupService!
+    private let screenshotSoundPlayer = ScreenshotSoundPlayer()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         settingsStore.load()
@@ -24,7 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         screenshotService = ScreenshotService(settingsStore: settingsStore,
                                              backupService: backupService,
-                                             clipboardService: clipboardService)
+                                             clipboardService: clipboardService,
+                                             soundPlayer: screenshotSoundPlayer)
+        screenshotSoundPlayer.prewarmCaptureSound()
         hotKeyService = HotKeyService()
 
         statusItemController = TrayService(

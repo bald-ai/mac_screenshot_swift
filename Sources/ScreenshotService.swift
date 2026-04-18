@@ -17,6 +17,20 @@ final class ScreenshotService: NSObject {
         let scale: CGFloat
     }
 
+    private struct PreparedCaptureSave {
+        let image: NSImage
+        let targetURL: URL
+        let quality: Int
+        let currentCounter: Int
+    }
+
+    @MainActor
+    private struct ShareableContentPrefetch {
+        let token: UUID
+        let task: Task<SCShareableContent, Error>
+        var fetchedAt: Date?
+    }
+
     fileprivate enum DebugSessionOutcome: String {
         case blockedOverlayActive = "blocked-overlay-active"
         case blockedBusy = "blocked-busy"
@@ -32,10 +46,13 @@ final class ScreenshotService: NSObject {
 
     private let fileManager: FileManager
     private let desktopDirectory: URL
+    private let capturePersistenceQueue = DispatchQueue(label: "Zoomies.CapturePersistence", qos: .userInitiated)
 
     private var selectionOverlay: SelectionOverlay?
     private var activeWorkflow: ScreenshotWorkflowController?
     private var isCaptureInProgress = false
+    @MainActor private var shareableContentPrefetch: ShareableContentPrefetch?
+    private let shareableContentPrefetchTTL: TimeInterval = 2
 
     init(settingsStore: SettingsStore,
          backupService: BackupService,
@@ -189,6 +206,7 @@ final class ScreenshotService: NSObject {
             ScreenshotService.dbg("showAreaOverlay: BAIL — selectionOverlay already exists")
             return
         }
+        prefetchShareableContent(trigger: "overlay")
         let overlay = SelectionOverlay()
         overlay.delegate = self
         selectionOverlay = overlay
@@ -223,9 +241,25 @@ final class ScreenshotService: NSObject {
 
     /// Starts the rename/note flow for an already-saved image.
     func beginPostCaptureFlow(forExistingFileAt url: URL, on screen: NSScreen? = nil, escapeKeyDeletesFile: Bool = true) {
+        beginPostCaptureFlow(forExistingFileAt: url,
+                             initialImage: nil,
+                             initialFilePersistence: nil,
+                             on: screen,
+                             escapeKeyDeletesFile: escapeKeyDeletesFile)
+    }
+
+    func beginPostCaptureFlow(forExistingFileAt url: URL,
+                              initialImage: NSImage? = nil,
+                              initialFilePersistence: Task<URL, Error>? = nil,
+                              on screen: NSScreen? = nil,
+                              escapeKeyDeletesFile: Bool = true) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
-                self?.beginPostCaptureFlow(forExistingFileAt: url, on: screen, escapeKeyDeletesFile: escapeKeyDeletesFile)
+                self?.beginPostCaptureFlow(forExistingFileAt: url,
+                                           initialImage: initialImage,
+                                           initialFilePersistence: initialFilePersistence,
+                                           on: screen,
+                                           escapeKeyDeletesFile: escapeKeyDeletesFile)
             }
             return
         }
@@ -239,6 +273,8 @@ final class ScreenshotService: NSObject {
 
         let workflow = ScreenshotWorkflowController(
             fileURL: url,
+            initialImage: initialImage,
+            initialFilePersistence: initialFilePersistence,
             settingsStore: settingsStore,
             clipboardService: clipboardService,
             backupService: backupService,
@@ -263,38 +299,8 @@ final class ScreenshotService: NSObject {
     /// Saves an arbitrary image to the Desktop using the current settings
     /// (quality, maxWidth, filename template) and returns the resulting URL.
     func saveImageToDesktop(_ image: NSImage) throws -> URL {
-        let settings = settingsStore.settings
-        ScreenshotService.dbg("saveImageToDesktop: inputSize=\(Self.describe(size: image.size)) quality=\(settings.quality) maxWidth=\(settings.maxWidth) counter=\(settings.screenshotCounter)")
-
-        let finalImage: NSImage
-        if settings.maxWidth > 0 {
-            finalImage = resizedImageIfNeeded(image, maxWidth: settings.maxWidth)
-        } else {
-            finalImage = image
-        }
-        ScreenshotService.dbg("saveImageToDesktop: finalSize=\(Self.describe(size: finalImage.size))")
-
-        guard let data = jpegData(from: finalImage, quality: settings.quality) else {
-            ScreenshotService.dbg("saveImageToDesktop: FAILED — jpegData returned nil")
-            throw NSError(domain: "ScreenshotService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode JPEG data."])
-        }
-
-        let date = Date()
-        let currentCounter = settings.screenshotCounter
-        let baseName = settings.filenameTemplate.makeFilename(date: date, counter: currentCounter)
-        ScreenshotService.dbg("saveImageToDesktop: baseName=\(baseName) desktop=\(desktopDirectory.path)")
-
-        try fileManager.createDirectory(at: desktopDirectory, withIntermediateDirectories: true)
-        let url = uniqueScreenshotURL(in: desktopDirectory, baseName: baseName)
-        try data.write(to: url, options: .atomic)
-        ScreenshotService.dbg("saveImageToDesktop: wrote file=\(url.path) bytes=\(data.count)")
-
-        settingsStore.update { settings in
-            settings.screenshotCounter = currentCounter + 1
-        }
-        ScreenshotService.dbg("saveImageToDesktop: incremented counter to \(settingsStore.settings.screenshotCounter)")
-
-        return url
+        let prepared = try prepareCaptureSave(for: image)
+        return try persistPreparedCapture(prepared)
     }
 
     // MARK: - Capture pipeline
@@ -377,17 +383,23 @@ final class ScreenshotService: NSObject {
         NSLog("ScreenshotService: saving capture %d×%d px", cgImage.width, cgImage.height)
         ScreenshotService.dbg("finishCapture: cgImageSize=\(cgImage.width)x\(cgImage.height) onDisplayID=\(displayID)")
         let image = NSImage(cgImage: cgImage, size: imageSize)
-        let url = try saveImageToDesktop(image)
-        ScreenshotService.dbg("finishCapture: saved image to \(url.path)")
+        let preparedSave = try prepareCaptureSave(for: image)
+        ScreenshotService.dbg("finishCapture: reserved target file \(preparedSave.targetURL.path)")
+        let initialFilePersistence = makeInitialFilePersistenceTask(for: preparedSave)
+        beginPostCaptureFlow(forExistingFileAt: preparedSave.targetURL,
+                             initialImage: preparedSave.image,
+                             initialFilePersistence: initialFilePersistence,
+                             on: screenForDisplayID(displayID))
+        ScreenshotService.dbg("finishCapture: launched rename workflow before disk write completes")
         soundPlayer.playCaptureSound()
-        ScreenshotService.dbg("finishCapture: played capture sound")
-        beginPostCaptureFlow(forExistingFileAt: url, on: screenForDisplayID(displayID))
+        ScreenshotService.dbg("finishCapture: queued capture sound playback")
         ScreenshotService.endAreaDebugSession(.captureSucceeded)
     }
 
     private func captureCGImage(rect: CGRect, on screen: ScreenSnapshot) async throws -> CGImage {
-        ScreenshotService.dbg("captureCGImage: requesting SCShareableContent for displayID=\(screen.displayID)")
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        let contentTask = await shareableContentTask(trigger: "capture")
+        ScreenshotService.dbg("captureCGImage: awaiting SCShareableContent for displayID=\(screen.displayID)")
+        let content = try await contentTask.value
         ScreenshotService.dbg("captureCGImage: received shareable content displays=\(content.displays.count) windows=\(content.windows.count) apps=\(content.applications.count)")
         guard let display = content.displays.first(where: { $0.displayID == screen.displayID }) else {
             ScreenshotService.dbg("captureCGImage: FAILED — no matching display for displayID=\(screen.displayID)")
@@ -489,6 +501,142 @@ final class ScreenshotService: NSObject {
             baseName: baseName,
             fileExists: { [fileManager] path in fileManager.fileExists(atPath: path) }
         )
+    }
+
+    private func prepareCaptureSave(for image: NSImage) throws -> PreparedCaptureSave {
+        let settings = settingsStore.settings
+        ScreenshotService.dbg("saveImageToDesktop: inputSize=\(Self.describe(size: image.size)) quality=\(settings.quality) maxWidth=\(settings.maxWidth) counter=\(settings.screenshotCounter)")
+
+        let finalImage: NSImage
+        if settings.maxWidth > 0 {
+            finalImage = resizedImageIfNeeded(image, maxWidth: settings.maxWidth)
+        } else {
+            finalImage = image
+        }
+        ScreenshotService.dbg("saveImageToDesktop: finalSize=\(Self.describe(size: finalImage.size))")
+
+        let date = Date()
+        let currentCounter = settings.screenshotCounter
+        let baseName = settings.filenameTemplate.makeFilename(date: date, counter: currentCounter)
+        ScreenshotService.dbg("saveImageToDesktop: baseName=\(baseName) desktop=\(desktopDirectory.path)")
+
+        try fileManager.createDirectory(at: desktopDirectory, withIntermediateDirectories: true)
+        let targetURL = uniqueScreenshotURL(in: desktopDirectory, baseName: baseName)
+        return PreparedCaptureSave(image: finalImage,
+                                   targetURL: targetURL,
+                                   quality: settings.quality,
+                                   currentCounter: currentCounter)
+    }
+
+    private func makeInitialFilePersistenceTask(for preparedSave: PreparedCaptureSave) -> Task<URL, Error> {
+        let targetURL = preparedSave.targetURL
+        return Task { [weak self] in
+            try await withCheckedThrowingContinuation { continuation in
+                guard let self else {
+                    continuation.resume(throwing: NSError(domain: "ScreenshotService",
+                                                          code: -10,
+                                                          userInfo: [NSLocalizedDescriptionKey: "Screenshot service was released before save completed."]))
+                    return
+                }
+
+                self.capturePersistenceQueue.async { [weak self] in
+                    guard let self else {
+                        continuation.resume(throwing: NSError(domain: "ScreenshotService",
+                                                              code: -10,
+                                                              userInfo: [NSLocalizedDescriptionKey: "Screenshot service was released before save completed."]))
+                        return
+                    }
+
+                    do {
+                        let writtenURL = try self.persistPreparedCapture(preparedSave)
+                        ScreenshotService.dbg("finishCapture: background save completed file=\(writtenURL.path)")
+                        continuation.resume(returning: writtenURL)
+                    } catch {
+                        ScreenshotService.dbg("finishCapture: background save FAILED target=\(targetURL.path) error=\(Self.describe(error: error))")
+                        continuation.resume(throwing: error)
+                    }
+                }
+            }
+        }
+    }
+
+    private func persistPreparedCapture(_ preparedSave: PreparedCaptureSave) throws -> URL {
+        guard let data = jpegData(from: preparedSave.image, quality: preparedSave.quality) else {
+            ScreenshotService.dbg("saveImageToDesktop: FAILED — jpegData returned nil")
+            throw NSError(domain: "ScreenshotService",
+                          code: -1,
+                          userInfo: [NSLocalizedDescriptionKey: "Failed to encode JPEG data."])
+        }
+
+        try data.write(to: preparedSave.targetURL, options: .atomic)
+        ScreenshotService.dbg("saveImageToDesktop: wrote file=\(preparedSave.targetURL.path) bytes=\(data.count)")
+        advanceScreenshotCounter(afterWritingCounter: preparedSave.currentCounter)
+        return preparedSave.targetURL
+    }
+
+    private func advanceScreenshotCounter(afterWritingCounter currentCounter: Int) {
+        let applyUpdate = { [settingsStore] in
+            settingsStore.update { settings in
+                settings.screenshotCounter = max(settings.screenshotCounter, currentCounter + 1)
+            }
+        }
+
+        if Thread.isMainThread {
+            applyUpdate()
+        } else {
+            DispatchQueue.main.sync(execute: applyUpdate)
+        }
+
+        ScreenshotService.dbg("saveImageToDesktop: incremented counter to \(settingsStore.settings.screenshotCounter)")
+    }
+
+    private func prefetchShareableContent(trigger: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await self.shareableContentTask(trigger: trigger)
+        }
+    }
+
+    private func shareableContentTask(trigger: String) async -> Task<SCShareableContent, Error> {
+        await MainActor.run {
+            let now = Date()
+            if let prefetch = shareableContentPrefetch {
+                if prefetch.fetchedAt == nil {
+                    ScreenshotService.dbg("shareableContent[\(prefetch.token.uuidString)]: reusing in-flight fetch for \(trigger)")
+                    return prefetch.task
+                }
+
+                if let fetchedAt = prefetch.fetchedAt,
+                   now.timeIntervalSince(fetchedAt) < shareableContentPrefetchTTL {
+                    ScreenshotService.dbg("shareableContent[\(prefetch.token.uuidString)]: reusing warm cache for \(trigger)")
+                    return prefetch.task
+                }
+            }
+
+            let token = UUID()
+            ScreenshotService.dbg("shareableContent[\(token.uuidString)]: starting fetch for \(trigger)")
+            let task = Task<SCShareableContent, Error> { [weak self] in
+                do {
+                    let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+                    ScreenshotService.dbg("shareableContent[\(token.uuidString)]: fetch succeeded displays=\(content.displays.count) windows=\(content.windows.count) apps=\(content.applications.count)")
+                    await MainActor.run {
+                        guard let self, self.shareableContentPrefetch?.token == token else { return }
+                        self.shareableContentPrefetch?.fetchedAt = Date()
+                    }
+                    return content
+                } catch {
+                    ScreenshotService.dbg("shareableContent[\(token.uuidString)]: fetch FAILED error=\(Self.describe(error: error))")
+                    await MainActor.run {
+                        guard let self, self.shareableContentPrefetch?.token == token else { return }
+                        self.shareableContentPrefetch = nil
+                    }
+                    throw error
+                }
+            }
+
+            shareableContentPrefetch = ShareableContentPrefetch(token: token, task: task, fetchedAt: nil)
+            return task
+        }
     }
 
     private func presentError(title: String, message: String) {

@@ -15,6 +15,9 @@ final class ScreenshotWorkflowController {
     }
 
     private var fileURL: URL
+    private var initialImage: NSImage?
+    private var initialFilePersistence: Task<URL, Error>?
+    private var initialFileReadyURL: URL?
     private let settingsStore: SettingsStore
     private let clipboardService: ClipboardService
     private let backupService: BackupService
@@ -35,12 +38,16 @@ final class ScreenshotWorkflowController {
     var onFinish: (() -> Void)?
 
     init(fileURL: URL,
+         initialImage: NSImage? = nil,
+         initialFilePersistence: Task<URL, Error>? = nil,
          settingsStore: SettingsStore,
          clipboardService: ClipboardService,
          backupService: BackupService,
          sourceScreen: NSScreen?,
          escapeKeyDeletesFile: Bool) {
         self.fileURL = fileURL
+        self.initialImage = initialImage
+        self.initialFilePersistence = initialFilePersistence
         self.settingsStore = settingsStore
         self.clipboardService = clipboardService
         self.backupService = backupService
@@ -177,6 +184,11 @@ final class ScreenshotWorkflowController {
         let sanitizedFullName = sanitizeFilename(trimmed, preservingExtensionOf: fileURL)
         let targetURL = uniqueURL(forProposedName: sanitizedFullName, in: fileURL.deletingLastPathComponent())
 
+        if isWaitingForInitialFilePersistence {
+            fileURL = targetURL
+            return true
+        }
+
         do {
             try FileManager.default.moveItem(at: fileURL, to: targetURL)
             fileURL = targetURL
@@ -255,6 +267,12 @@ final class ScreenshotWorkflowController {
                                             notePreview: text,
                                             targetScreen: sourceScreen,
                                             escapeKeyDeletesFile: escapeKeyDeletesFile)
+        } else if let initialImage {
+            editor = EditorWindowController(image: initialImage,
+                                            settingsStore: settingsStore,
+                                            notePreview: text,
+                                            targetScreen: sourceScreen,
+                                            escapeKeyDeletesFile: escapeKeyDeletesFile)
         } else {
             editor = EditorWindowController(imageURL: fileURL,
                                             settingsStore: settingsStore,
@@ -290,6 +308,14 @@ final class ScreenshotWorkflowController {
     }
 
     func handleEditorCompletion(editedImage: NSImage?, action: FinalAction) {
+        if action != .closeOnly && isWaitingForInitialFilePersistence {
+            waitForInitialFilePersistence { [weak self] ready in
+                guard let self, ready else { return }
+                self.handleEditorCompletion(editedImage: editedImage, action: action)
+            }
+            return
+        }
+
         editorController?.dismissWithoutCompletion()
         editorController = nil
         pendingEditedImage = nil
@@ -361,9 +387,74 @@ final class ScreenshotWorkflowController {
         backupOriginalURL = nil
     }
 
+    private var isWaitingForInitialFilePersistence: Bool {
+        initialFileReadyURL == nil && initialFilePersistence != nil
+    }
+
+    private func waitForInitialFilePersistence(completion: @escaping (Bool) -> Void) {
+        if let initialFileReadyURL {
+            fileURL = initialFileReadyURL
+            completion(true)
+            return
+        }
+
+        guard let initialFilePersistence else {
+            completion(true)
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                let writtenURL = try await initialFilePersistence.value
+                await MainActor.run {
+                    do {
+                        try self.reconcileInitialFileWriteIfNeeded(writtenURL: writtenURL)
+                        completion(true)
+                    } catch {
+                        self.presentError(title: "Failed to save image", message: error.localizedDescription)
+                        completion(false)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.initialFilePersistence = nil
+                    self.presentError(title: "Failed to save image", message: error.localizedDescription)
+                    completion(false)
+                }
+            }
+        }
+    }
+
+    private func reconcileInitialFileWriteIfNeeded(writtenURL: URL) throws {
+        if let initialFileReadyURL {
+            fileURL = initialFileReadyURL
+            return
+        }
+
+        if writtenURL != fileURL {
+            try FileManager.default.moveItem(at: writtenURL, to: fileURL)
+        } else {
+            fileURL = writtenURL
+        }
+
+        initialFileReadyURL = fileURL
+        initialFilePersistence = nil
+        initialImage = nil
+    }
+
     // MARK: - Completion
 
     private func complete(action: FinalAction, note: String?) {
+        if action != .closeOnly && isWaitingForInitialFilePersistence {
+            waitForInitialFilePersistence { [weak self] ready in
+                guard let self, ready else { return }
+                self.complete(action: action, note: note)
+            }
+            return
+        }
+
         renameController?.close()
         noteController?.close()
         renameController = nil

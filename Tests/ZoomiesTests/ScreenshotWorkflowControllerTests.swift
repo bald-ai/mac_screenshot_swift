@@ -50,10 +50,47 @@ final class ScreenshotWorkflowControllerTests: XCTestCase {
         XCTAssertEqual(cachedFiles.first?.lastPathComponent, "shot.png")
     }
 
+    func testHandleEditorCompletionWaitsForPendingInitialPersistence() throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.removeIfExists(root) }
+
+        let fileURL = root.appendingPathComponent("pending-shot.png")
+        let clipboardDirectory = root.appendingPathComponent("clipboard", isDirectory: true)
+        let initialImage = TestSupport.solidImage(width: 80, height: 40, color: .systemBlue)
+        let initialPersistence = Task<URL, Error> {
+            try await Task.sleep(nanoseconds: 150_000_000)
+            try TestSupport.writeSolidImagePNG(to: fileURL, width: 80, height: 40, color: .systemBlue)
+            return fileURL
+        }
+
+        let workflow = try makeWorkflow(root: root,
+                                        fileURL: fileURL,
+                                        clipboardDirectory: clipboardDirectory,
+                                        initialImage: initialImage,
+                                        initialFilePersistence: initialPersistence,
+                                        writeOriginalFile: false)
+
+        let finished = expectation(description: "workflow finished")
+        workflow.onFinish = { finished.fulfill() }
+
+        let editedImage = TestSupport.solidImage(width: 180, height: 90, color: .systemRed)
+        workflow.handleEditorCompletion(editedImage: editedImage, action: .saveOnly)
+        wait(for: [finished], timeout: 3.0)
+
+        let saved = try XCTUnwrap(NSImage(contentsOf: fileURL))
+        XCTAssertEqual(saved.size.width, 180, accuracy: 1.0)
+        XCTAssertEqual(saved.size.height, 90, accuracy: 1.0)
+    }
+
     private func makeWorkflow(root: URL,
                               fileURL: URL,
-                              clipboardDirectory: URL) throws -> ScreenshotWorkflowController {
-        try TestSupport.writeSolidImagePNG(to: fileURL, width: 80, height: 40)
+                              clipboardDirectory: URL,
+                              initialImage: NSImage? = nil,
+                              initialFilePersistence: Task<URL, Error>? = nil,
+                              writeOriginalFile: Bool = true) throws -> ScreenshotWorkflowController {
+        if writeOriginalFile {
+            try TestSupport.writeSolidImagePNG(to: fileURL, width: 80, height: 40)
+        }
 
         let settingsStore = SettingsStore(fileManager: .default,
                                           fileURL: root.appendingPathComponent("settings.json"))
@@ -69,6 +106,8 @@ final class ScreenshotWorkflowControllerTests: XCTestCase {
                                                 cacheDirectory: clipboardDirectory)
 
         return ScreenshotWorkflowController(fileURL: fileURL,
+                                            initialImage: initialImage,
+                                            initialFilePersistence: initialFilePersistence,
                                             settingsStore: settingsStore,
                                             clipboardService: clipboardService,
                                             backupService: backupService,
