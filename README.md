@@ -33,6 +33,8 @@ swift run Zoomies
 - `Ctrl+Shift+3` -> full-screen capture
 - `Ctrl+Shift+2` -> select an image in Finder, press this to edit/rename it with Zoomies
 
+Area capture now shows the overlay immediately on hotkey, without waiting for app activation.
+
 ## Rebinding Shortcuts
 
 I recommend rebinding to the default macOS screenshot shortcuts (`Cmd+Shift+3` / `Cmd+Shift+4`) — they are way more comfortable.

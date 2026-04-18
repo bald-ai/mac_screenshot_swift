@@ -61,9 +61,6 @@ final class ScreenshotService: NSObject {
 
     // MARK: - Public API
 
-    private var activationObserver: NSObjectProtocol?
-    private var activationTimeout: DispatchWorkItem?
-
     func captureArea() {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in
@@ -91,14 +88,8 @@ final class ScreenshotService: NSObject {
         ScreenshotService.dbg("captureArea: NSApp.isActive=\(NSApp.isActive) BEFORE activate()")
         NSApp.activate(ignoringOtherApps: true)
         ScreenshotService.dbg("captureArea: NSApp.isActive=\(NSApp.isActive) AFTER activate()")
-
-        if NSApp.isActive {
-            ScreenshotService.dbg("captureArea: WARM path — showing overlay immediately")
-            showAreaOverlay()
-        } else {
-            ScreenshotService.dbg("captureArea: COLD path — waiting for didBecomeActive")
-            waitForActivationThenShowOverlay()
-        }
+        ScreenshotService.dbg("captureArea: showing overlay immediately after activate()")
+        showAreaOverlay()
     }
 
     private static let debugLogQueue = DispatchQueue(label: "Zoomies.DebugLogQueue")
@@ -204,38 +195,6 @@ final class ScreenshotService: NSObject {
         ScreenshotService.dbg("showAreaOverlay: created SelectionOverlay instance")
         overlay.beginSelection()
         ScreenshotService.dbg("showAreaOverlay: beginSelection() returned")
-    }
-
-    private func waitForActivationThenShowOverlay() {
-        cancelActivationWait()
-        ScreenshotService.dbg("activation: waiting up to 3.0s for didBecomeActive")
-
-        activationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            ScreenshotService.dbg("activation: didBecomeActive fired — NSApp.isActive=\(NSApp.isActive)")
-            self?.cancelActivationWait()
-            self?.showAreaOverlay()
-        }
-
-        let timeout = DispatchWorkItem { [weak self] in
-            ScreenshotService.dbg("activation: TIMEOUT — activation never completed")
-            self?.cancelActivationWait()
-        }
-        activationTimeout = timeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: timeout)
-    }
-
-    private func cancelActivationWait() {
-        ScreenshotService.dbg("activation: cancelActivationWait observer=\(activationObserver != nil) timeout=\(activationTimeout != nil)")
-        if let observer = activationObserver {
-            NotificationCenter.default.removeObserver(observer)
-            activationObserver = nil
-        }
-        activationTimeout?.cancel()
-        activationTimeout = nil
     }
 
     /// Captures the full contents of the display under the mouse.

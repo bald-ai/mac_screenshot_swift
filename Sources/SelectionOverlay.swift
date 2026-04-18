@@ -68,12 +68,7 @@ final class SelectionOverlay: NSObject {
 
         window = overlayWindow
         selectionView = overlayView
-
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(handleAppDeactivation),
-                                               name: NSApplication.didResignActiveNotification,
-                                               object: nil)
-        ScreenshotService.dbg("beginSelection: DONE — deactivation observer registered")
+        ScreenshotService.dbg("beginSelection: DONE")
     }
 
     func cancelSelection() {
@@ -117,19 +112,11 @@ final class SelectionOverlay: NSObject {
 
     private func tearDown() {
         ScreenshotService.dbg("tearDown: tearing down overlay windowExists=\(window != nil) selectionViewExists=\(selectionView != nil) screenExists=\(screen != nil)")
-        NotificationCenter.default.removeObserver(self,
-                                                   name: NSApplication.didResignActiveNotification,
-                                                   object: nil)
         selectionView?.releaseCursor()
         window?.orderOut(nil)
         window = nil
         selectionView = nil
         screen = nil
-    }
-
-    @objc private func handleAppDeactivation() {
-        ScreenshotService.dbg("deactivation: app deactivated — cancelling overlay. NSApp.isActive=\(NSApp.isActive)")
-        cancelSelection()
     }
 }
 
@@ -204,7 +191,6 @@ private final class SelectionOverlayView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         ScreenshotService.dbg("view: mouseDown — hasDrawn=\(hasDrawn) window.isKey=\(window?.isKeyWindow ?? false)")
-        guard hasDrawn else { return }
         let point = convert(event.locationInWindow, from: nil)
         startPoint = point
         currentPoint = point
@@ -221,7 +207,6 @@ private final class SelectionOverlayView: NSView {
 
     override func mouseUp(with event: NSEvent) {
         ScreenshotService.dbg("view: mouseUp — hasDrawn=\(hasDrawn) startPoint=\(startPoint != nil)")
-        guard hasDrawn else { return }
         if let currentSelectionRect {
             ScreenshotService.dbg("view: mouseUp — currentSelectionRect=\(ScreenshotService.describe(rect: currentSelectionRect))")
         } else {
@@ -232,7 +217,6 @@ private final class SelectionOverlayView: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         ScreenshotService.dbg("view: rightMouseDown — hasDrawn=\(hasDrawn)")
-        guard hasDrawn else { return }
         onComplete?(nil)
     }
 
