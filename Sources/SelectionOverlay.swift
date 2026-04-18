@@ -11,8 +11,29 @@ final class SelectionOverlay: NSObject {
     weak var delegate: SelectionOverlayDelegate?
 
     private var screen: NSScreen?
-    private var window: NSWindow?
+    private var window: SelectionOverlayWindow?
     private var selectionView: SelectionOverlayView?
+    private var screenParametersObserver: NSObjectProtocol?
+
+    private(set) var isActive = false
+
+    override init() {
+        super.init()
+
+        screenParametersObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.invalidateCachedOverlay()
+        }
+    }
+
+    deinit {
+        if let screenParametersObserver {
+            NotificationCenter.default.removeObserver(screenParametersObserver)
+        }
+    }
 
     func beginSelection() {
         if !Thread.isMainThread {
@@ -22,53 +43,30 @@ final class SelectionOverlay: NSObject {
             return
         }
 
-        ScreenshotService.dbg("beginSelection: START — window=\(window != nil) NSApp.isActive=\(NSApp.isActive)")
-
-        guard window == nil else {
-            ScreenshotService.dbg("beginSelection: BAIL — window already exists")
+        guard !isActive else {
             return
         }
 
         guard let targetScreen = NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) })
             ?? NSScreen.main
             ?? NSScreen.screens.first else {
-            ScreenshotService.dbg("beginSelection: BAIL — no screen found")
+            return
+        }
+
+        let overlayWindow = buildOverlayIfNeeded(for: targetScreen)
+        guard let selectionView else {
             return
         }
 
         screen = targetScreen
-        ScreenshotService.dbg("beginSelection: target screen: \(targetScreen.frame)")
-
-        let overlayWindow = SelectionOverlayWindow(contentRect: targetScreen.frame,
-                                                   styleMask: [.borderless],
-                                                   backing: .buffered,
-                                                   defer: false,
-                                                   screen: targetScreen)
-        overlayWindow.isOpaque = false
-        overlayWindow.backgroundColor = .clear
-        overlayWindow.level = .screenSaver
-        overlayWindow.ignoresMouseEvents = false
-        overlayWindow.hasShadow = false
-        overlayWindow.acceptsMouseMovedEvents = true
-        overlayWindow.collectionBehavior = [.fullScreenAuxiliary]
-
-        let overlayView = SelectionOverlayView(frame: overlayWindow.contentView?.bounds ?? .zero)
-        overlayView.autoresizingMask = [.width, .height]
-        overlayView.backingScaleFactor = targetScreen.backingScaleFactor
-        overlayView.onComplete = { [weak self] rectInView in
-            self?.finish(with: rectInView)
-        }
-
-        ScreenshotService.dbg("beginSelection: BEFORE makeKeyAndOrderFront")
-        overlayWindow.contentView = overlayView
-        overlayWindow.makeKeyAndOrderFront(nil)
-        ScreenshotService.dbg("beginSelection: AFTER makeKeyAndOrderFront — window.isVisible=\(overlayWindow.isVisible) window.isKeyWindow=\(overlayWindow.isKeyWindow)")
-        overlayWindow.makeFirstResponder(overlayView)
-        ScreenshotService.dbg("beginSelection: firstResponder set — isFirstResponder=\(overlayWindow.firstResponder === overlayView)")
-
-        window = overlayWindow
-        selectionView = overlayView
-        ScreenshotService.dbg("beginSelection: DONE")
+        overlayWindow.setFrame(targetScreen.frame, display: false)
+        selectionView.frame = CGRect(origin: .zero, size: targetScreen.frame.size)
+        selectionView.prepareForSelection(backingScaleFactor: targetScreen.backingScaleFactor)
+        selectionView.pushCursorIfNeeded()
+        overlayWindow.orderFront(nil)
+        overlayWindow.makeKey()
+        overlayWindow.makeFirstResponder(selectionView)
+        isActive = true
     }
 
     func cancelSelection() {
@@ -82,41 +80,71 @@ final class SelectionOverlay: NSObject {
         finish(with: nil)
     }
 
+    private func buildOverlayIfNeeded(for screen: NSScreen) -> SelectionOverlayWindow {
+        if let window {
+            return window
+        }
+
+        let overlayWindow = SelectionOverlayWindow(contentRect: .zero,
+                                                   styleMask: [.borderless],
+                                                   backing: .buffered,
+                                                   defer: false,
+                                                   screen: screen)
+        overlayWindow.isOpaque = false
+        overlayWindow.backgroundColor = .clear
+        overlayWindow.level = .screenSaver
+        overlayWindow.ignoresMouseEvents = false
+        overlayWindow.hasShadow = false
+        overlayWindow.acceptsMouseMovedEvents = true
+        overlayWindow.collectionBehavior = [.fullScreenAuxiliary]
+
+        let overlayView = SelectionOverlayView(frame: .zero)
+        overlayView.autoresizingMask = [.width, .height]
+        overlayView.onComplete = { [weak self] rectInView in
+            self?.finish(with: rectInView)
+        }
+
+        overlayWindow.contentView = overlayView
+        window = overlayWindow
+        selectionView = overlayView
+        return overlayWindow
+    }
+
     private func finish(with rectInView: CGRect?) {
-        guard let screen else {
-            ScreenshotService.dbg("finishSelection: no screen available during finish")
+        guard let currentScreen = screen else {
             tearDown()
             return
         }
 
         var rectInScreenCoordinates: CGRect?
         if let rectInView, let window {
-            ScreenshotService.dbg("finishSelection: rectInView=\(ScreenshotService.describe(rect: rectInView))")
             let rectInWindow = selectionView?.convert(rectInView, to: nil) ?? rectInView
             let selectionRect = window.convertToScreen(rectInWindow)
             let minimumSizePoints: CGFloat = 5
-            ScreenshotService.dbg("finishSelection: converted rectInWindow=\(ScreenshotService.describe(rect: rectInWindow)) rectInScreen=\(ScreenshotService.describe(rect: selectionRect)) minimumSizePoints=\(minimumSizePoints)")
             if selectionRect.width >= minimumSizePoints && selectionRect.height >= minimumSizePoints {
                 rectInScreenCoordinates = selectionRect
-                ScreenshotService.dbg("finishSelection: ACCEPTED selection rect")
-            } else {
-                ScreenshotService.dbg("finishSelection: REJECTED selection rect — below minimum size")
             }
-        } else {
-            ScreenshotService.dbg("finishSelection: rectInView=nil or window missing")
         }
 
         tearDown()
-        delegate?.selectionOverlay(self, didFinishWith: rectInScreenCoordinates, onScreen: screen)
+        delegate?.selectionOverlay(self, didFinishWith: rectInScreenCoordinates, onScreen: currentScreen)
     }
 
     private func tearDown() {
-        ScreenshotService.dbg("tearDown: tearing down overlay windowExists=\(window != nil) selectionViewExists=\(selectionView != nil) screenExists=\(screen != nil)")
         selectionView?.releaseCursor()
         window?.orderOut(nil)
+        selectionView?.resetSelectionState()
+        screen = nil
+        isActive = false
+    }
+
+    private func invalidateCachedOverlay() {
+        selectionView?.releaseCursor()
+        window?.orderOut(nil)
+        screen = nil
+        isActive = false
         window = nil
         selectionView = nil
-        screen = nil
     }
 }
 
@@ -138,12 +166,23 @@ private final class SelectionOverlayView: NSView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        ScreenshotService.dbg("view: viewDidMoveToWindow — window=\(window != nil) cursorPushed=\(cursorPushed)")
-        guard window != nil, !cursorPushed else {
+    func prepareForSelection(backingScaleFactor: CGFloat) {
+        self.backingScaleFactor = backingScaleFactor
+        resetSelectionState()
+        needsDisplay = true
+    }
+
+    func resetSelectionState() {
+        startPoint = nil
+        currentPoint = nil
+        hasDrawn = false
+    }
+
+    func pushCursorIfNeeded() {
+        guard !cursorPushed else {
             return
         }
+
         NSCursor.crosshair.push()
         cursorPushed = true
         window?.invalidateCursorRects(for: self)
@@ -153,6 +192,7 @@ private final class SelectionOverlayView: NSView {
         guard cursorPushed else {
             return
         }
+
         NSCursor.pop()
         cursorPushed = false
     }
@@ -165,11 +205,7 @@ private final class SelectionOverlayView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let wasFirst = !hasDrawn
         hasDrawn = true
-        if wasFirst {
-            ScreenshotService.dbg("view: draw() FIRST CALL — window.isVisible=\(window?.isVisible ?? false) window.isKeyWindow=\(window?.isKeyWindow ?? false)")
-        }
 
         NSColor.black.withAlphaComponent(0.30).setFill()
         bounds.fill()
@@ -190,7 +226,6 @@ private final class SelectionOverlayView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        ScreenshotService.dbg("view: mouseDown — hasDrawn=\(hasDrawn) window.isKey=\(window?.isKeyWindow ?? false)")
         let point = convert(event.locationInWindow, from: nil)
         startPoint = point
         currentPoint = point
@@ -201,27 +236,20 @@ private final class SelectionOverlayView: NSView {
         guard startPoint != nil else {
             return
         }
+
         currentPoint = convert(event.locationInWindow, from: nil)
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
-        ScreenshotService.dbg("view: mouseUp — hasDrawn=\(hasDrawn) startPoint=\(startPoint != nil)")
-        if let currentSelectionRect {
-            ScreenshotService.dbg("view: mouseUp — currentSelectionRect=\(ScreenshotService.describe(rect: currentSelectionRect))")
-        } else {
-            ScreenshotService.dbg("view: mouseUp — currentSelectionRect=nil")
-        }
         onComplete?(currentSelectionRect)
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        ScreenshotService.dbg("view: rightMouseDown — hasDrawn=\(hasDrawn)")
         onComplete?(nil)
     }
 
     override func keyDown(with event: NSEvent) {
-        ScreenshotService.dbg("view: keyDown — keyCode=\(event.keyCode)")
         switch event.keyCode {
         case 53:
             onComplete?(nil)
