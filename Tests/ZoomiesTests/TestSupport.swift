@@ -24,16 +24,23 @@ enum TestSupport {
         return image
     }
 
-    static func writeSolidImagePNG(to url: URL,
-                                   width: CGFloat = 100,
-                                   height: CGFloat = 60,
-                                   color: NSColor = .systemBlue) throws {
+    static func solidImagePNGData(width: CGFloat = 100,
+                                  height: CGFloat = 60,
+                                  color: NSColor = .systemBlue) throws -> Data {
         let image = solidImage(width: width, height: height, color: color)
         guard let tiff = image.tiffRepresentation,
               let rep = NSBitmapImageRep(data: tiff),
               let data = rep.representation(using: .png, properties: [:]) else {
             throw NSError(domain: "TestSupport", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode test PNG image"])
         }
+        return data
+    }
+
+    static func writeSolidImagePNG(to url: URL,
+                                   width: CGFloat = 100,
+                                   height: CGFloat = 60,
+                                   color: NSColor = .systemBlue) throws {
+        let data = try solidImagePNGData(width: width, height: height, color: color)
         try data.write(to: url, options: .atomic)
     }
 }

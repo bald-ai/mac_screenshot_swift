@@ -134,6 +134,140 @@ final class ScreenshotWorkflowControllerTests: XCTestCase {
         XCTAssertEqual(saved.size.height, 90, accuracy: 1.0)
     }
 
+    func testSaveThenReopenRoundTripsCleanImageAndPrompt() throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.removeIfExists(root) }
+
+        let fileURL = root.appendingPathComponent("shot.png")
+        let clipboardDirectory = root.appendingPathComponent("clipboard", isDirectory: true)
+
+        // Save a screenshot with a note. The burned PNG embeds the clean original + prompt.
+        let saveWorkflow = try makeWorkflow(root: root, fileURL: fileURL, clipboardDirectory: clipboardDirectory)
+        let originalHeight = try XCTUnwrap(NSImage(contentsOf: fileURL)).size.height
+
+        let saved = expectation(description: "saved")
+        saveWorkflow.onFinish = { saved.fulfill() }
+        saveWorkflow.pendingNoteText = "round trip me"
+        saveWorkflow.handleRenameAction(.save(newName: fileURL.lastPathComponent))
+        wait(for: [saved], timeout: 2.0)
+
+        // On disk the file is taller (note burned) yet still carries the clean original.
+        let burned = try XCTUnwrap(NSImage(contentsOf: fileURL))
+        XCTAssertGreaterThan(burned.size.height, originalHeight)
+
+        let savedData = try Data(contentsOf: fileURL)
+        let extracted = try XCTUnwrap(PNGMetadata.extract(fromPNG: savedData))
+        XCTAssertEqual(extracted.prompt, "round trip me")
+        let recovered = try XCTUnwrap(NSImage(data: extracted.originalPNG))
+        XCTAssertEqual(recovered.size.width, 80, accuracy: 1.0)
+        XCTAssertEqual(recovered.size.height, 40, accuracy: 1.0)
+
+        // Reopening the saved file pre-fills the prompt (the Note panel reads pendingNoteText).
+        let reopenWorkflow = try makeWorkflow(root: root,
+                                              fileURL: fileURL,
+                                              clipboardDirectory: clipboardDirectory,
+                                              writeOriginalFile: false)
+        XCTAssertEqual(reopenWorkflow.pendingNoteText, "round trip me")
+    }
+
+    func testResavePreservesOriginalOriginalNotOnceBurnedImage() throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.removeIfExists(root) }
+
+        let fileURL = root.appendingPathComponent("shot.png")
+        let clipboardDirectory = root.appendingPathComponent("clipboard", isDirectory: true)
+
+        // First save with a note.
+        let first = try makeWorkflow(root: root, fileURL: fileURL, clipboardDirectory: clipboardDirectory)
+        let firstDone = expectation(description: "first save")
+        first.onFinish = { firstDone.fulfill() }
+        first.pendingNoteText = "first"
+        first.handleRenameAction(.save(newName: fileURL.lastPathComponent))
+        wait(for: [firstDone], timeout: 2.0)
+
+        let afterFirstData = try Data(contentsOf: fileURL)
+        let afterFirst = try XCTUnwrap(PNGMetadata.extract(fromPNG: afterFirstData))
+
+        // Reopen, change the note, and re-save.
+        let second = try makeWorkflow(root: root,
+                                      fileURL: fileURL,
+                                      clipboardDirectory: clipboardDirectory,
+                                      writeOriginalFile: false)
+        XCTAssertEqual(second.pendingNoteText, "first")
+        let secondDone = expectation(description: "second save")
+        second.onFinish = { secondDone.fulfill() }
+        second.pendingNoteText = "second"
+        second.handleRenameAction(.save(newName: fileURL.lastPathComponent))
+        wait(for: [secondDone], timeout: 2.0)
+
+        let afterSecondData = try Data(contentsOf: fileURL)
+        let afterSecond = try XCTUnwrap(PNGMetadata.extract(fromPNG: afterSecondData))
+        XCTAssertEqual(afterSecond.prompt, "second")
+        // The embedded original is still the true 80x40 original, NOT the once-burned taller image.
+        let recovered = try XCTUnwrap(NSImage(data: afterSecond.originalPNG))
+        XCTAssertEqual(recovered.size.width, 80, accuracy: 1.0)
+        XCTAssertEqual(recovered.size.height, 40, accuracy: 1.0)
+        XCTAssertEqual(afterSecond.originalPNG, afterFirst.originalPNG,
+                       "Re-saving must preserve the original-original, never re-embed the burned image.")
+    }
+
+    func testEditorEditsBecomeNewBaselineAndOnlyNoteRoundTrips() throws {
+        // Edge case: drawings/edits made in the Editor bake into the saved file and
+        // become the new clean baseline. Only the note text is un-baked on reopen;
+        // the editor edits are intentionally NOT reversible.
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.removeIfExists(root) }
+
+        let fileURL = root.appendingPathComponent("shot.png") // clean original is 80x40
+        let clipboardDirectory = root.appendingPathComponent("clipboard", isDirectory: true)
+        let workflow = try makeWorkflow(root: root, fileURL: fileURL, clipboardDirectory: clipboardDirectory)
+        workflow.pendingNoteText = "describe the drawing"
+
+        let done = expectation(description: "saved")
+        workflow.onFinish = { done.fulfill() }
+
+        // Simulate an editor that produced a 120x60 flattened image (e.g. with drawings),
+        // distinct from the 80x40 clean original.
+        let edited = TestSupport.solidImage(width: 120, height: 60, color: .systemGreen)
+        workflow.handleEditorCompletion(editedImage: edited, action: .saveOnly)
+        wait(for: [done], timeout: 2.0)
+
+        let savedData = try Data(contentsOf: fileURL)
+        let extracted = try XCTUnwrap(PNGMetadata.extract(fromPNG: savedData))
+        XCTAssertEqual(extracted.prompt, "describe the drawing")
+        let baseline = try XCTUnwrap(NSImage(data: extracted.originalPNG))
+        // The embedded baseline is the EDITED image (120x60), not the pre-edit 80x40 original.
+        XCTAssertEqual(baseline.size.width, 120, accuracy: 1.0)
+        XCTAssertEqual(baseline.size.height, 60, accuracy: 1.0)
+    }
+
+    func testNonPNGSaveSkipsEmbeddingWithoutCrashing() throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.removeIfExists(root) }
+
+        let fileURL = root.appendingPathComponent("shot.jpg")
+        let jpeg = try XCTUnwrap(ScreenshotServiceCoreLogic.jpegData(from: TestSupport.solidImage(width: 80, height: 40),
+                                                                     quality: 90))
+        try jpeg.write(to: fileURL, options: .atomic)
+
+        let clipboardDirectory = root.appendingPathComponent("clipboard", isDirectory: true)
+        let workflow = try makeWorkflow(root: root,
+                                        fileURL: fileURL,
+                                        clipboardDirectory: clipboardDirectory,
+                                        writeOriginalFile: false)
+
+        let done = expectation(description: "saved")
+        workflow.onFinish = { done.fulfill() }
+        workflow.pendingNoteText = "note on a jpeg"
+        workflow.handleRenameAction(.save(newName: fileURL.lastPathComponent))
+        wait(for: [done], timeout: 2.0)
+
+        // JPEG output carries no PNG round-trip metadata and stays a JPEG.
+        let data = try Data(contentsOf: fileURL)
+        XCTAssertFalse(PNGMetadata.isPNG(data))
+        XCTAssertNil(PNGMetadata.extract(fromPNG: data))
+    }
+
     private func makeWorkflow(root: URL,
                               fileURL: URL,
                               clipboardDirectory: URL,

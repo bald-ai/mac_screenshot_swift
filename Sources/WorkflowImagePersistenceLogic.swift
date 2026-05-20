@@ -8,9 +8,14 @@ struct WorkflowEncodedImageResult {
 enum WorkflowImagePersistenceLogic {
     typealias UniqueURLResolver = (_ proposedName: String, _ directory: URL) -> URL
 
+    /// Originals larger than this are not embedded, to avoid bloating saved files.
+    static let maxEmbeddedOriginalBytes = 5 * 1024 * 1024
+
     static func encodedImageData(from image: NSImage,
                                  originalURL: URL,
                                  quality: Int,
+                                 cleanOriginalPNG: Data? = nil,
+                                 prompt: String? = nil,
                                  uniqueURL: UniqueURLResolver) -> WorkflowEncodedImageResult? {
         let ext = originalURL.pathExtension.lowercased()
 
@@ -44,7 +49,15 @@ enum WorkflowImagePersistenceLogic {
             properties = [:]
         }
 
-        guard let data = bitmap.representation(using: fileType, properties: properties) else { return nil }
+        guard var data = bitmap.representation(using: fileType, properties: properties) else { return nil }
+
+        // Round-trip metadata is PNG-only; other formats silently skip embedding.
+        if fileType == .png,
+           let prompt, !prompt.isEmpty,
+           let cleanOriginalPNG, cleanOriginalPNG.count < maxEmbeddedOriginalBytes,
+           let embedded = PNGMetadata.embed(intoPNG: data, originalPNG: cleanOriginalPNG, prompt: prompt) {
+            data = embedded
+        }
 
         let outputURL: URL
         if shouldChangeExtensionOnWrite && !ext.isEmpty && outputExtension != ext {
