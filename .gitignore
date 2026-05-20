@@ -27,3 +27,7 @@ xcuserdata/
 # Repo-local planning / scratch artifacts.
 agent_tasks/
 RELEASE_TODO.md
+
+# Python bytecode (no Python is part of this project).
+__pycache__/
+*.pyc
