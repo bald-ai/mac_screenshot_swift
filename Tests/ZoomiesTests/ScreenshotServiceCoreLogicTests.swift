@@ -76,9 +76,9 @@ final class ScreenshotServiceCoreLogicTests: XCTestCase {
 
     func testUniqueScreenshotURLUsesFallbackNameAndSuffixes() {
         let dir = URL(fileURLWithPath: "/tmp")
-        let taken = Set(["/tmp/Screenshot.jpg", "/tmp/Screenshot_2.jpg"])
+        let taken = Set(["/tmp/Screenshot.png", "/tmp/Screenshot_2.png"])
         let url = ScreenshotServiceCoreLogic.uniqueScreenshotURL(in: dir, baseName: "") { taken.contains($0) }
-        XCTAssertEqual(url.lastPathComponent, "Screenshot_3.jpg")
+        XCTAssertEqual(url.lastPathComponent, "Screenshot_3.png")
     }
 
     func testScreenCaptureRectFlipsToDisplayTopLeftCoordinates() {

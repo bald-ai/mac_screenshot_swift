@@ -12,43 +12,17 @@ enum WorkflowImagePersistenceLogic {
                                  originalURL: URL,
                                  quality: Int,
                                  uniqueURL: UniqueURLResolver) -> WorkflowEncodedImageResult? {
+        // PNG-only: every image is encoded as PNG regardless of the original
+        // file's extension. PNG is lossless, so `quality` is unused.
         let ext = originalURL.pathExtension.lowercased()
 
-        let (fileType, outputExtension, shouldChangeExtensionOnWrite): (NSBitmapImageRep.FileType, String, Bool) = {
-            switch ext {
-            case "png":
-                return (.png, "png", false)
-            case "tif", "tiff":
-                return (.tiff, ext, false)
-            case "bmp":
-                return (.bmp, "bmp", false)
-            case "gif":
-                return (.gif, "gif", false)
-            case "jpg", "jpeg":
-                return (.jpeg, ext, false)
-            case "heic", "heif":
-                return (.jpeg, "jpg", true)
-            default:
-                return (.jpeg, "jpg", false)
-            }
-        }()
-
-        let sourceImage = flattenedToEditorBackgroundIfNeeded(image, for: fileType)
-        guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: sourceImage) else { return nil }
-
-        let properties: [NSBitmapImageRep.PropertyKey: Any]
-        if fileType == .jpeg {
-            let clamped = max(10, min(100, quality))
-            properties = [.compressionFactor: CGFloat(clamped) / 100.0]
-        } else {
-            properties = [:]
-        }
-
-        guard let data = bitmap.representation(using: fileType, properties: properties) else { return nil }
+        guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: image) else { return nil }
+        guard let data = bitmap.representation(using: .png, properties: [:]) else { return nil }
 
         let outputURL: URL
-        if shouldChangeExtensionOnWrite && !ext.isEmpty && outputExtension != ext {
-            let proposedName = originalURL.deletingPathExtension().lastPathComponent + "." + outputExtension
+        if ext != "png" && !ext.isEmpty {
+            // Original wasn't a PNG (e.g. an opened JPEG/HEIC). Rewrite as .png.
+            let proposedName = originalURL.deletingPathExtension().lastPathComponent + ".png"
             outputURL = uniqueURL(proposedName, originalURL.deletingLastPathComponent())
         } else {
             outputURL = originalURL

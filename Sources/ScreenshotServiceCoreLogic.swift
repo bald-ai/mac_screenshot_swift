@@ -89,7 +89,7 @@ enum ScreenshotServiceCoreLogic {
     static func uniqueScreenshotURL(in directory: URL, baseName: String, fileExists: (String) -> Bool) -> URL {
         let name = baseName.isEmpty ? "Screenshot" : baseName
         return UniqueFileURLLogic.uniqueURL(
-            forProposedName: "\(name).jpg",
+            forProposedName: "\(name).png",
             in: directory,
             fileExists: fileExists
         )

@@ -736,47 +736,18 @@ final class ScreenshotWorkflowController {
     }
 
     private func encodedImageData(from image: NSImage, originalURL: URL, quality: Int) -> (data: Data, outputURL: URL)? {
+        // PNG-only: every image is encoded as PNG regardless of the original
+        // file's extension. PNG is lossless, so `quality` is unused.
         let ext = originalURL.pathExtension.lowercased()
 
-        let (fileType, outputExtension, shouldChangeExtensionOnWrite): (NSBitmapImageRep.FileType, String, Bool) = {
-            switch ext {
-            case "png":
-                return (.png, "png", false)
-            case "tif", "tiff":
-                return (.tiff, ext, false) // preserve tif vs tiff spelling
-            case "bmp":
-                return (.bmp, "bmp", false)
-            case "gif":
-                return (.gif, "gif", false)
-            case "jpg", "jpeg":
-                return (.jpeg, ext, false) // preserve jpg vs jpeg spelling
-            case "heic", "heif":
-                // NSBitmapImageRep cannot encode HEIC. Fall back to JPEG.
-                return (.jpeg, "jpg", true)
-            default:
-                // Unknown extension; safest default is JPEG.
-                return (.jpeg, "jpg", false)
-            }
-        }()
-
-        let sourceImage = flattenedToEditorBackgroundIfNeeded(image, for: fileType)
-        guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: sourceImage) else { return nil }
-
-        let properties: [NSBitmapImageRep.PropertyKey: Any]
-        if fileType == .jpeg {
-            let clamped = max(10, min(100, quality))
-            let compression = CGFloat(clamped) / 100.0
-            properties = [.compressionFactor: compression]
-        } else {
-            properties = [:]
-        }
-
-        guard let data = bitmap.representation(using: fileType, properties: properties) else { return nil }
+        guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: image) else { return nil }
+        guard let data = bitmap.representation(using: .png, properties: [:]) else { return nil }
 
         let outputURL: URL
-        if shouldChangeExtensionOnWrite && !ext.isEmpty && outputExtension != ext {
-            // Extension changed (e.g. HEIC -> JPG). Pick a non-colliding target name.
-            let proposedName = originalURL.deletingPathExtension().lastPathComponent + "." + outputExtension
+        if ext != "png" && !ext.isEmpty {
+            // Original wasn't a PNG (e.g. an opened JPEG/HEIC). Rewrite as .png
+            // and pick a non-colliding target name.
+            let proposedName = originalURL.deletingPathExtension().lastPathComponent + ".png"
             outputURL = uniqueURL(forProposedName: proposedName, in: originalURL.deletingLastPathComponent())
         } else {
             outputURL = originalURL

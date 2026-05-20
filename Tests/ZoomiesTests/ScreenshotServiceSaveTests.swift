@@ -56,7 +56,7 @@ final class ScreenshotServiceSaveTests: XCTestCase {
         let output = try service.saveImageToDesktop(TestSupport.solidImage(width: 200, height: 100))
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
-        XCTAssertEqual(output.lastPathComponent, "TestShot_7.jpg")
+        XCTAssertEqual(output.lastPathComponent, "TestShot_7.png")
         XCTAssertEqual(settingsStore.settings.screenshotCounter, 8)
     }
 
@@ -66,7 +66,7 @@ final class ScreenshotServiceSaveTests: XCTestCase {
 
         let desktop = root.appendingPathComponent("Desktop", isDirectory: true)
         try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
-        let existing = desktop.appendingPathComponent("Shot_1.jpg")
+        let existing = desktop.appendingPathComponent("Shot_1.png")
         try Data("existing".utf8).write(to: existing, options: .atomic)
 
         let settingsStore = SettingsStore(fileManager: .default, fileURL: root.appendingPathComponent("settings.json"))
@@ -89,7 +89,7 @@ final class ScreenshotServiceSaveTests: XCTestCase {
                                         soundPlayer: NoopSoundPlayer())
 
         let output = try service.saveImageToDesktop(TestSupport.solidImage(width: 120, height: 60))
-        XCTAssertEqual(output.lastPathComponent, "Shot_1_2.jpg")
+        XCTAssertEqual(output.lastPathComponent, "Shot_1_2.png")
     }
 
     func testSaveImageToDesktopResizesWhenMaxWidthSet() throws {

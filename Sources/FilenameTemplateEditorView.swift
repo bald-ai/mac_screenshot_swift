@@ -102,7 +102,7 @@ final class FilenameTemplateEditorView: NSView, NSTableViewDataSource, NSTableVi
     private func updatePreview() {
         let template = settingsStore.settings.filenameTemplate
         let exampleName = template.makeFilename(date: Date(), counter: 2)
-        previewLabel.stringValue = "Preview: \(exampleName).jpg"
+        previewLabel.stringValue = "Preview: \(exampleName).png"
     }
 
     private func mutateTemplate(_ body: (inout FilenameTemplate) -> Void) {

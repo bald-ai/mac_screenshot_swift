@@ -3,7 +3,7 @@ import AppKit
 @testable import Zoomies
 
 final class WorkflowImagePersistenceLogicTests: XCTestCase {
-    func testEncodedImageDataConvertsHeicExtensionToUniqueJpgURL() throws {
+    func testEncodedImageDataConvertsNonPngExtensionToUniquePngURL() throws {
         let image = TestSupport.solidImage(width: 80, height: 40, color: .systemRed)
         let originalURL = URL(fileURLWithPath: "/tmp/example.heic")
 
@@ -13,14 +13,14 @@ final class WorkflowImagePersistenceLogicTests: XCTestCase {
                 originalURL: originalURL,
                 quality: 95,
                 uniqueURL: { proposedName, directory in
-                    XCTAssertEqual(proposedName, "example.jpg")
-                    return directory.appendingPathComponent("example_2.jpg")
+                    XCTAssertEqual(proposedName, "example.png")
+                    return directory.appendingPathComponent("example_2.png")
                 }
             )
         )
 
         XCTAssertFalse(encoded.data.isEmpty)
-        XCTAssertEqual(encoded.outputURL.lastPathComponent, "example_2.jpg")
+        XCTAssertEqual(encoded.outputURL.lastPathComponent, "example_2.png")
     }
 
     func testWriteEncodedImageDataRemovesOriginalWhenOutputMoves() throws {
@@ -28,7 +28,7 @@ final class WorkflowImagePersistenceLogicTests: XCTestCase {
         defer { TestSupport.removeIfExists(root) }
 
         let originalURL = root.appendingPathComponent("shot.heic")
-        let outputURL = root.appendingPathComponent("shot.jpg")
+        let outputURL = root.appendingPathComponent("shot.png")
         let fileManager = FileManager.default
 
         try Data("old".utf8).write(to: originalURL, options: .atomic)

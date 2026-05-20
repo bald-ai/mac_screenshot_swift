@@ -98,7 +98,9 @@ final class ClipboardService {
     /// the cached file URL on the pasteboard. Used for "Copy+Delete" from the
     /// editor where the edited image was never saved to disk.
     func copyImageAsFile(_ image: NSImage, fileName: String) {
-        let cachedURL = uniqueCachedURL(for: fileName)
+        // PNG-only: always cache the clipboard file as PNG.
+        let pngFileName = (fileName as NSString).deletingPathExtension + ".png"
+        let cachedURL = uniqueCachedURL(for: pngFileName)
 
         guard let tiff = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiff) else {
@@ -107,23 +109,7 @@ final class ClipboardService {
             return
         }
 
-        let ext = (fileName as NSString).pathExtension.lowercased()
-        let (fileType, properties): (NSBitmapImageRep.FileType, [NSBitmapImageRep.PropertyKey: Any]) = {
-            switch ext {
-            case "jpg", "jpeg":
-                return (.jpeg, [.compressionFactor: CGFloat(0.85)])
-            case "tif", "tiff":
-                return (.tiff, [:])
-            case "bmp":
-                return (.bmp, [:])
-            case "gif":
-                return (.gif, [:])
-            default:
-                return (.png, [:])
-            }
-        }()
-
-        guard let data = bitmap.representation(using: fileType, properties: properties) else {
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
             writeImage(image)
             return
         }
