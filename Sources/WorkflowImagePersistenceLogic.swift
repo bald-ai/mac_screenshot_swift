@@ -8,16 +8,30 @@ struct WorkflowEncodedImageResult {
 enum WorkflowImagePersistenceLogic {
     typealias UniqueURLResolver = (_ proposedName: String, _ directory: URL) -> URL
 
+    /// Originals larger than this are not embedded, to avoid bloating saved files.
+    /// Generous enough that real screenshots (incl. full-screen Retina PNGs)
+    /// always round-trip; only pathologically large originals are skipped.
+    static let maxEmbeddedOriginalBytes = 50 * 1024 * 1024
+
     static func encodedImageData(from image: NSImage,
                                  originalURL: URL,
                                  quality: Int,
+                                 cleanOriginalPNG: Data? = nil,
+                                 prompt: String? = nil,
                                  uniqueURL: UniqueURLResolver) -> WorkflowEncodedImageResult? {
         // PNG-only: every image is encoded as PNG regardless of the original
         // file's extension. PNG is lossless, so `quality` is unused.
         let ext = originalURL.pathExtension.lowercased()
 
         guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: image) else { return nil }
-        guard let data = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        guard var data = bitmap.representation(using: .png, properties: [:]) else { return nil }
+
+        // Round-trip metadata: embed the clean original + prompt when present.
+        if let prompt, !prompt.isEmpty,
+           let cleanOriginalPNG, cleanOriginalPNG.count < maxEmbeddedOriginalBytes,
+           let embedded = PNGMetadata.embed(intoPNG: data, originalPNG: cleanOriginalPNG, prompt: prompt) {
+            data = embedded
+        }
 
         let outputURL: URL
         if ext != "png" && !ext.isEmpty {
@@ -42,23 +56,5 @@ enum WorkflowImagePersistenceLogic {
         }
 
         return outputURL
-    }
-
-    private static func flattenedToEditorBackgroundIfNeeded(_ image: NSImage,
-                                                            for fileType: NSBitmapImageRep.FileType) -> NSImage {
-        guard fileType == .jpeg else { return image }
-
-        let size = image.size
-        return NSImage(size: size, flipped: true) { rect in
-            NSColor(calibratedWhite: 0.96, alpha: 1.0).setFill()
-            rect.fill()
-            image.draw(in: rect,
-                       from: .zero,
-                       operation: .sourceOver,
-                       fraction: 1.0,
-                       respectFlipped: true,
-                       hints: nil)
-            return true
-        }
     }
 }

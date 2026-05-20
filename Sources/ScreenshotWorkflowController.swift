@@ -24,6 +24,12 @@ final class ScreenshotWorkflowController {
     private let sourceScreen: NSScreen?
     private let escapeKeyDeletesFile: Bool
 
+    /// The clean (pre-note) original used to round-trip prompt edits when a saved
+    /// PNG is reopened. For a fresh capture this is the in-memory image; for a
+    /// reopened Zoomies PNG it is the original recovered from embedded metadata,
+    /// so repeated re-edits never bake a note on top of an already-burned image.
+    private let cleanOriginalPNG: Data?
+
     private var renameController: RenamePanelController?
     private var noteController: NotePanelController?
     private var editorController: EditorWindowController?
@@ -46,13 +52,51 @@ final class ScreenshotWorkflowController {
          sourceScreen: NSScreen?,
          escapeKeyDeletesFile: Bool) {
         self.fileURL = fileURL
-        self.initialImage = initialImage
         self.initialFilePersistence = initialFilePersistence
         self.settingsStore = settingsStore
         self.clipboardService = clipboardService
         self.backupService = backupService
         self.sourceScreen = sourceScreen
         self.escapeKeyDeletesFile = escapeKeyDeletesFile
+
+        let reopen = Self.resolveReopenMetadata(fileURL: fileURL, initialImage: initialImage)
+        self.cleanOriginalPNG = reopen.cleanOriginalPNG
+        // Swap the burned-on-disk image for the recovered clean original and
+        // pre-fill the prompt the user previously typed.
+        self.initialImage = reopen.image ?? initialImage
+        if let prompt = reopen.prompt {
+            self.pendingNoteText = prompt
+        }
+    }
+
+    /// Resolves the clean baseline image, in-memory image, and pre-filled prompt
+    /// for a workflow, recovering embedded round-trip metadata on reopen.
+    private static func resolveReopenMetadata(fileURL: URL, initialImage: NSImage?)
+        -> (cleanOriginalPNG: Data?, image: NSImage?, prompt: String?) {
+        // Fresh capture: the in-memory image is already the clean original. Only
+        // snapshot it as PNG when the output is a PNG (embedding is PNG-only), so
+        // the common JPEG capture path skips an unnecessary encode.
+        if let initialImage {
+            let baseline = fileURL.pathExtension.lowercased() == "png" ? pngData(from: initialImage) : nil
+            return (baseline, nil, nil)
+        }
+        // Reopen: inspect the existing file for embedded round-trip metadata.
+        guard let fileData = try? Data(contentsOf: fileURL) else {
+            return (nil, nil, nil)
+        }
+        if let extracted = PNGMetadata.extract(fromPNG: fileData) {
+            return (extracted.originalPNG, NSImage(data: extracted.originalPNG), extracted.prompt)
+        }
+        // Plain PNG with no metadata: the file itself is the clean baseline.
+        if PNGMetadata.isPNG(fileData) {
+            return (fileData, nil, nil)
+        }
+        return (nil, nil, nil)
+    }
+
+    private static func pngData(from image: NSImage) -> Data? {
+        guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: image) else { return nil }
+        return bitmap.representation(using: .png, properties: [:])
     }
 
     // MARK: - Public API
@@ -319,6 +363,8 @@ final class ScreenshotWorkflowController {
         pendingEditedImage = nil
 
         var finalImage: NSImage?
+        var baselinePNG: Data?
+        var embedPrompt: String?
         if let image = editedImage {
             // Editor returns a flattened image. If there's a pending note, burn it once
             // right before saving/copying so it never stacks/duplicates.
@@ -326,6 +372,9 @@ final class ScreenshotWorkflowController {
                let noted = burn(note: preparedNote.rendered, into: image) {
                 finalImage = noted
                 burnedNoteText = preparedNote.identity
+                // Editor edits become the new clean baseline; only the note is round-tripped.
+                baselinePNG = baselinePNGForEmbedding(preNoteImage: image)
+                embedPrompt = preparedNote.identity
             } else {
                 finalImage = image
                 burnedNoteText = ""
@@ -344,7 +393,7 @@ final class ScreenshotWorkflowController {
         if let finalImage,
            (action == .saveOnly || action == .copyAndSave) {
             // Save the final (possibly noted) image to disk.
-            guard saveEditedImage(finalImage) else { return }
+            guard saveEditedImage(finalImage, baselinePNG: baselinePNG, prompt: embedPrompt) else { return }
             // Workflow finished normally: remove backup if one was created.
             removeBackupIfNeeded()
         }
@@ -353,20 +402,52 @@ final class ScreenshotWorkflowController {
         onFinish?()
     }
 
-    private func saveEditedImage(_ image: NSImage) -> Bool {
+    private func saveEditedImage(_ image: NSImage, baselinePNG: Data?, prompt: String?) -> Bool {
         ensureBackupExists()
+        return encodeAndWriteImage(image,
+                                   baselinePNG: baselinePNG,
+                                   prompt: prompt,
+                                   errorTitle: "Failed to save image")
+    }
 
+    /// Returns the PNG bytes to embed as the round-trip original for an image the
+    /// note will be burned onto, or nil when the output is not a PNG.
+    private func baselinePNGForEmbedding(preNoteImage: NSImage) -> Data? {
+        guard fileURL.pathExtension.lowercased() == "png" else { return nil }
+        return Self.pngData(from: preNoteImage)
+    }
+
+    private func encodeAndWriteImage(_ image: NSImage,
+                                     baselinePNG: Data?,
+                                     prompt: String?,
+                                     errorTitle: String) -> Bool {
         let quality = settingsStore.settings.quality
-        guard let (data, outputURL) = encodedImageData(from: image, originalURL: fileURL, quality: quality) else {
-            presentError(title: "Failed to encode image", message: "Could not encode the edited image.")
+        guard let encoded = WorkflowImagePersistenceLogic.encodedImageData(
+            from: image,
+            originalURL: fileURL,
+            quality: quality,
+            cleanOriginalPNG: baselinePNG,
+            prompt: prompt,
+            uniqueURL: { name, directory in
+                WorkflowFilenameLogic.uniqueURL(forProposedName: name,
+                                                in: directory,
+                                                fileExists: { FileManager.default.fileExists(atPath: $0) })
+            }
+        ) else {
+            presentError(title: errorTitle, message: "Could not encode the image.")
             return false
         }
 
         do {
-            try writeEncodedImageData(data, to: outputURL, originalURL: fileURL)
+            let finalURL = try WorkflowImagePersistenceLogic.writeEncodedImageData(encoded.data,
+                                                                                   to: encoded.outputURL,
+                                                                                   originalURL: fileURL)
+            if finalURL != fileURL {
+                fileURL = finalURL
+            }
             return true
         } catch {
-            presentError(title: "Failed to write image", message: error.localizedDescription)
+            presentError(title: errorTitle, message: error.localizedDescription)
             return false
         }
     }
@@ -469,6 +550,8 @@ final class ScreenshotWorkflowController {
         }()
 
         let imageToPersist: NSImage?
+        var baselinePNG: Data?
+        var embedPrompt: String?
         if let pendingImage {
             var finalImage = pendingImage
             if let note,
@@ -479,6 +562,9 @@ final class ScreenshotWorkflowController {
                 }
                 finalImage = noted
                 burnedNoteText = preparedNote.identity
+                // Carried editor edits become the new baseline; only the note round-trips.
+                baselinePNG = baselinePNGForEmbedding(preNoteImage: pendingImage)
+                embedPrompt = preparedNote.identity
             } else {
                 burnedNoteText = ""
             }
@@ -490,7 +576,10 @@ final class ScreenshotWorkflowController {
             }
         }
 
-        guard persistImageIfNeeded(imageToPersist, for: action) else { return }
+        guard persistImageIfNeeded(imageToPersist,
+                                   for: action,
+                                   baselinePNG: baselinePNG,
+                                   prompt: embedPrompt) else { return }
         guard performFinalActionEffects(action, copyAndDeleteImage: nil) else { return }
         if action == .saveOnly || action == .copyAndSave {
             removeBackupIfNeeded()
@@ -523,7 +612,9 @@ final class ScreenshotWorkflowController {
 
         ensureBackupExists()
 
-        guard let image = NSImage(contentsOf: fileURL) else {
+        // Prefer the recovered clean original so re-saving a reopened Zoomies PNG
+        // never bakes a note on top of an already-burned image.
+        guard let image = initialImage ?? NSImage(contentsOf: fileURL) else {
             presentError(title: "Failed to apply note", message: "Could not read the screenshot image.")
             return false
         }
@@ -532,16 +623,10 @@ final class ScreenshotWorkflowController {
             return false
         }
 
-        let quality = settingsStore.settings.quality
-        guard let (data, outputURL) = encodedImageData(from: updated, originalURL: fileURL, quality: quality) else {
-            presentError(title: "Failed to apply note", message: "Could not encode the noted image.")
-            return false
-        }
-
-        do {
-            try writeEncodedImageData(data, to: outputURL, originalURL: fileURL)
-        } catch {
-            presentError(title: "Failed to write note", message: error.localizedDescription)
+        guard encodeAndWriteImage(updated,
+                                  baselinePNG: cleanOriginalPNG,
+                                  prompt: preparedNote.identity,
+                                  errorTitle: "Failed to apply note") else {
             return false
         }
         burnedNoteText = preparedNote.identity
@@ -566,12 +651,15 @@ final class ScreenshotWorkflowController {
         return (identity, rendered)
     }
 
-    private func persistImageIfNeeded(_ image: NSImage?, for action: FinalAction) -> Bool {
+    private func persistImageIfNeeded(_ image: NSImage?,
+                                      for action: FinalAction,
+                                      baselinePNG: Data?,
+                                      prompt: String?) -> Bool {
         guard let image else { return true }
 
         switch action {
         case .saveOnly, .copyAndSave, .copyAndDelete:
-            return saveEditedImage(image)
+            return saveEditedImage(image, baselinePNG: baselinePNG, prompt: prompt)
         case .deleteOnly, .closeOnly:
             return true
         }
@@ -732,59 +820,6 @@ final class ScreenshotWorkflowController {
                           attributes: [NSAttributedString.Key: Any]) -> [String] {
         WorkflowTextWrapLogic.wrapText(text, maxWidth: maxWidth) { value in
             (value as NSString).size(withAttributes: attributes).width
-        }
-    }
-
-    private func encodedImageData(from image: NSImage, originalURL: URL, quality: Int) -> (data: Data, outputURL: URL)? {
-        // PNG-only: every image is encoded as PNG regardless of the original
-        // file's extension. PNG is lossless, so `quality` is unused.
-        let ext = originalURL.pathExtension.lowercased()
-
-        guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: image) else { return nil }
-        guard let data = bitmap.representation(using: .png, properties: [:]) else { return nil }
-
-        let outputURL: URL
-        if ext != "png" && !ext.isEmpty {
-            // Original wasn't a PNG (e.g. an opened JPEG/HEIC). Rewrite as .png
-            // and pick a non-colliding target name.
-            let proposedName = originalURL.deletingPathExtension().lastPathComponent + ".png"
-            outputURL = uniqueURL(forProposedName: proposedName, in: originalURL.deletingLastPathComponent())
-        } else {
-            outputURL = originalURL
-        }
-
-        return (data, outputURL)
-    }
-
-    private func flattenedToEditorBackgroundIfNeeded(_ image: NSImage,
-                                                     for fileType: NSBitmapImageRep.FileType) -> NSImage {
-        guard fileType == .jpeg else { return image }
-
-        let size = image.size
-        return NSImage(size: size, flipped: true) { rect in
-            // JPEG can't keep transparency. Use a neutral non-themed background color.
-            NSColor(calibratedWhite: 0.96, alpha: 1.0).setFill()
-            rect.fill()
-            image.draw(in: rect,
-                       from: .zero,
-                       operation: .sourceOver,
-                       fraction: 1.0,
-                       respectFlipped: true,
-                       hints: nil)
-            return true
-        }
-    }
-
-    private func writeEncodedImageData(_ data: Data, to outputURL: URL, originalURL: URL) throws {
-        try data.write(to: outputURL, options: .atomic)
-
-        if outputURL != originalURL {
-            // We wrote a new file with a new extension (e.g. HEIC -> JPG). Remove the old one.
-            let fm = FileManager.default
-            if fm.fileExists(atPath: originalURL.path) {
-                try? fm.removeItem(at: originalURL)
-            }
-            fileURL = outputURL
         }
     }
 
