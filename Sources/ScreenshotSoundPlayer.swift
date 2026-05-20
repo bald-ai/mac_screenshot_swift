@@ -34,9 +34,7 @@ final class ScreenshotSoundPlayer {
         // Restart from the beginning for each capture.
         player.stop()
         player.currentTime = 0
-        if player.play() != true {
-            AppLogger.error("Failed to play screenshot sound")
-        }
+        _ = player.play()
     }
 
     private func preparePlayerIfNeeded() -> AVAudioPlayer? {
@@ -45,7 +43,6 @@ final class ScreenshotSoundPlayer {
             withExtension: "mp3",
             fileManager: fileManager
         ) else {
-            AppLogger.error("Screenshot sound resource not found")
             return nil
         }
 
@@ -59,7 +56,6 @@ final class ScreenshotSoundPlayer {
         } catch {
             player = nil
             playerURL = nil
-            AppLogger.error("Failed initializing screenshot sound player", error: error)
             return nil
         }
     }

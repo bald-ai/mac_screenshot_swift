@@ -50,6 +50,58 @@ final class ScreenshotWorkflowControllerTests: XCTestCase {
         XCTAssertEqual(cachedFiles.first?.lastPathComponent, "shot.png")
     }
 
+    func testRenameSaveBurnsPendingNoteFromPreviousNotePanelVisit() throws {
+        // Regression: typing a note, returning to Rename via Shift+Tab, then saving
+        // from Rename used to silently drop the note text.
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.removeIfExists(root) }
+
+        let fileURL = root.appendingPathComponent("shot.png")
+        let clipboardDirectory = root.appendingPathComponent("clipboard", isDirectory: true)
+        let workflow = try makeWorkflow(root: root, fileURL: fileURL, clipboardDirectory: clipboardDirectory)
+
+        let originalImage = try XCTUnwrap(NSImage(contentsOf: fileURL))
+        let originalHeight = originalImage.size.height
+
+        let finished = expectation(description: "workflow finished")
+        workflow.onFinish = { finished.fulfill() }
+
+        // Simulate: user typed text in the Note panel, then pressed Shift+Tab to return
+        // to the Rename panel. (Setting the field directly avoids spawning a real window.)
+        workflow.pendingNoteText = "prompt for the AI"
+        // Then user pressed Enter on the Rename panel to save.
+        workflow.handleRenameAction(.save(newName: fileURL.lastPathComponent))
+
+        wait(for: [finished], timeout: 2.0)
+
+        let saved = try XCTUnwrap(NSImage(contentsOf: fileURL))
+        XCTAssertGreaterThan(saved.size.height,
+                             originalHeight,
+                             "Saved image should be taller because the carried-over note text was burned in.")
+    }
+
+    func testRenameSaveWithoutPendingNoteLeavesImageUntouched() throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.removeIfExists(root) }
+
+        let fileURL = root.appendingPathComponent("shot.png")
+        let clipboardDirectory = root.appendingPathComponent("clipboard", isDirectory: true)
+        let workflow = try makeWorkflow(root: root, fileURL: fileURL, clipboardDirectory: clipboardDirectory)
+
+        let originalImage = try XCTUnwrap(NSImage(contentsOf: fileURL))
+        let originalHeight = originalImage.size.height
+
+        let finished = expectation(description: "workflow finished")
+        workflow.onFinish = { finished.fulfill() }
+
+        workflow.handleRenameAction(.save(newName: fileURL.lastPathComponent))
+
+        wait(for: [finished], timeout: 2.0)
+
+        let saved = try XCTUnwrap(NSImage(contentsOf: fileURL))
+        XCTAssertEqual(saved.size.height, originalHeight, accuracy: 1.0)
+    }
+
     func testHandleEditorCompletionWaitsForPendingInitialPersistence() throws {
         let root = try TestSupport.makeTemporaryDirectory()
         defer { TestSupport.removeIfExists(root) }

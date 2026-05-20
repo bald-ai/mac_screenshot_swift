@@ -42,7 +42,6 @@ final class SettingsStore {
         } catch {
             // Fall back to defaults but do not overwrite the possibly-bad file.
             // This mirrors many macOS apps' behavior.
-            AppLogger.error("Failed loading settings; using defaults", error: error)
             settings = .default
         }
     }
@@ -52,7 +51,6 @@ final class SettingsStore {
         do {
             try persist(settings)
         } catch {
-            AppLogger.error("Failed saving settings", error: error)
         }
     }
 

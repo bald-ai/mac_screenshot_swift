@@ -70,7 +70,6 @@ final class ClipboardService {
                 try fileManager.copyItem(at: url, to: cachedURL)
                 sourceURL = cachedURL
             } catch {
-                AppLogger.error("Failed to cache clipboard file: \(url.path)", error: error)
                 // Fall back to using the original URL.
                 sourceURL = url
             }

@@ -28,7 +28,7 @@ final class ScreenshotWorkflowController {
     private var noteController: NotePanelController?
     private var editorController: EditorWindowController?
 
-    private var pendingNoteText: String = ""
+    var pendingNoteText: String = ""
     private var pendingEditedImage: NSImage?
     private var burnedNoteText: String = ""
     private var hasCreatedBackup = false
@@ -130,25 +130,29 @@ final class ScreenshotWorkflowController {
 
     // MARK: - Rename handling
 
-    private func handleRenameAction(_ action: RenamePanelAction) {
+    func handleRenameAction(_ action: RenamePanelAction) {
+        // Carry any text typed in the Note panel across a Shift+Tab return to Rename,
+        // so saving from Rename still burns the pending note onto the screenshot.
+        let carriedNote = pendingNoteText.isEmpty ? nil : pendingNoteText
+
         switch action {
         case .save(let newName):
             guard applyRenameIfNeeded(newName: newName) else {
                 return
             }
-            complete(action: .saveOnly, note: nil)
+            complete(action: .saveOnly, note: carriedNote)
 
         case .copyAndSave(let newName):
             guard applyRenameIfNeeded(newName: newName) else {
                 return
             }
-            complete(action: .copyAndSave, note: nil)
+            complete(action: .copyAndSave, note: carriedNote)
 
         case .copyAndDelete(let newName):
             guard applyRenameIfNeeded(newName: newName) else {
                 return
             }
-            complete(action: .copyAndDelete, note: nil)
+            complete(action: .copyAndDelete, note: carriedNote)
 
         case .delete:
             complete(action: .deleteOnly, note: nil)
@@ -208,7 +212,7 @@ final class ScreenshotWorkflowController {
 
     // MARK: - Note handling
 
-    private func handleNoteAction(_ action: NotePanelAction) {
+    func handleNoteAction(_ action: NotePanelAction) {
         switch action {
         case .save(let text):
             complete(action: .saveOnly, note: text)
@@ -817,9 +821,5 @@ final class ScreenshotWorkflowController {
 
     private func presentError(title: String, message: String) {
         AlertPresenter.presentWarning(title: title, message: message)
-    }
-
-    var debugFilePathForLogging: String {
-        fileURL.path
     }
 }

@@ -47,7 +47,6 @@ final class BackupService {
             try? fileManager.removeItem(at: backupURL)
             try fileManager.copyItem(at: url, to: backupURL)
         } catch {
-            AppLogger.error("Failed creating backup for \(url.path)", error: error)
         }
     }
 
@@ -61,7 +60,6 @@ final class BackupService {
         } catch let error as CocoaError where error.code == .fileNoSuchFile {
             return
         } catch {
-            AppLogger.error("Failed removing backup for \(url.path)", error: error)
         }
     }
 }

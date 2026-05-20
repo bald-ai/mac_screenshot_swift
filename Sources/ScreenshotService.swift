@@ -243,7 +243,6 @@ final class ScreenshotService: NSObject {
 
     private func finishCapture(with cgImage: CGImage, onDisplayID displayID: CGDirectDisplayID) throws {
         let imageSize = NSSize(width: CGFloat(cgImage.width), height: CGFloat(cgImage.height))
-        NSLog("ScreenshotService: saving capture %d×%d px", cgImage.width, cgImage.height)
         let image = NSImage(cgImage: cgImage, size: imageSize)
         let preparedSave = try prepareCaptureSave(for: image)
         let initialFilePersistence = makeInitialFilePersistenceTask(for: preparedSave)

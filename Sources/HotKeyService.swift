@@ -106,8 +106,6 @@ final class HotKeyService {
 
         if status == noErr, let ref = hotKeyRef {
             registrations[hotKeyID.id] = Registration(ref: ref, handler: handler)
-        } else {
-            NSLog("[HotKeyService] Failed to register hotkey (kind: \(kind), status: \(status))")
         }
     }
 
@@ -138,8 +136,6 @@ final class HotKeyService {
 
         if status == noErr {
             isEventHandlerInstalled = true
-        } else {
-            NSLog("[HotKeyService] Failed to install hotkey event handler: \(status)")
         }
     }
 
