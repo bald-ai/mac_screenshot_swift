@@ -3,9 +3,6 @@ import Carbon
 
 /// Top-level settings model persisted to ~/.screenshot_app_settings.json
 struct Settings: Codable {
-    /// JPEG quality 10	100, step 5.
-    var quality: Int
-
     /// Maximum width in pixels (0 = original size).
     var maxWidth: Int
 
@@ -28,7 +25,6 @@ struct Settings: Codable {
 extension Settings {
     /// Default settings used on first launch or when decoding fails.
     static let `default` = Settings(
-        quality: 90,
         maxWidth: 0,
         notePrefixEnabled: false,
         notePrefix: "",
@@ -40,10 +36,6 @@ extension Settings {
     /// Returns a copy normalized to all invariants/constraints.
     func normalized() -> Settings {
         var copy = self
-
-        // Clamp and quantize quality to 10	100, step 5.
-        let clampedQuality = min(100, max(10, quality))
-        copy.quality = (clampedQuality / 5) * 5
 
         // Ensure maxWidth is never negative; 0 means "Original".
         copy.maxWidth = max(0, maxWidth)
@@ -165,7 +157,7 @@ struct FilenameTemplate: Codable {
 
 extension FilenameTemplate {
     /// Default filename template roughly matching common screenshot conventions.
-    /// Example outcome: "Screenshot_2024-01-30_14.23.45_2.jpg".
+    /// Example outcome: "Screenshot_2024-01-30_14.23.45_2.png".
     static let defaultTemplate: FilenameTemplate = {
         let screenshot = Block(kind: .staticText, isEnabled: true, text: "Screenshot")
         let date = Block(kind: .date, isEnabled: true, text: nil, format: "yyyy-MM-dd")

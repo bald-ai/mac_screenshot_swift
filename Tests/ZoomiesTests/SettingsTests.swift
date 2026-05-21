@@ -2,18 +2,6 @@ import XCTest
 @testable import Zoomies
 
 final class SettingsTests: XCTestCase {
-    func testNormalizedClampsAndQuantizesQuality() {
-        var settings = Settings.default
-        settings.quality = 103
-        XCTAssertEqual(settings.normalized().quality, 100)
-
-        settings.quality = 9
-        XCTAssertEqual(settings.normalized().quality, 10)
-
-        settings.quality = 97
-        XCTAssertEqual(settings.normalized().quality, 95)
-    }
-
     func testNormalizedClampsMaxWidthAndCounterAndPrefix() {
         var settings = Settings.default
         settings.maxWidth = -40

@@ -1,14 +1,12 @@
 import AppKit
 
-/// Settings window with controls for quality, max size, note prefix, and
+/// Settings window with controls for max size, note prefix, and
 /// global shortcut configuration.
 final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTextFieldDelegate {
     private let settingsStore: SettingsStore
     private let hotKeyService: HotKeyService
 
     // UI elements we need to read/write after initialization.
-    private let qualitySlider: NSSlider
-    private let qualityValueLabel: NSTextField
     private let maxSizePopUp: NSPopUpButton
     private let notePrefixCheckbox: NSButton
     private let notePrefixField: NSTextField
@@ -27,8 +25,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         self.settingsStore = settingsStore
         self.hotKeyService = hotKeyService
 
-        qualitySlider = NSSlider(value: 90, minValue: 10, maxValue: 100, target: nil, action: nil)
-        qualityValueLabel = NSTextField(labelWithString: "")
         maxSizePopUp = NSPopUpButton(frame: .zero, pullsDown: false)
         notePrefixCheckbox = NSButton(checkboxWithTitle: "Enable Note Prefix", target: nil, action: nil)
         notePrefixField = NSTextField(string: "")
@@ -101,29 +97,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         let generalHeader = NSTextField(labelWithString: "General")
         generalHeader.font = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize)
 
-        // Quality row
-        let qualityLabel = NSTextField(labelWithString: "JPEG Quality")
-        qualityLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        qualitySlider.translatesAutoresizingMaskIntoConstraints = false
-        qualitySlider.minValue = 10
-        qualitySlider.maxValue = 100
-        qualitySlider.numberOfTickMarks = (100 - 10) / 5 + 1
-        qualitySlider.allowsTickMarkValuesOnly = true
-        qualitySlider.target = self
-        qualitySlider.action = #selector(qualitySliderChanged(_:))
-
-        qualityValueLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        let qualityRow = NSStackView(views: [qualityLabel, qualitySlider, qualityValueLabel])
-        qualityRow.orientation = .horizontal
-        qualityRow.alignment = .centerY
-        qualityRow.spacing = 8
-        qualityRow.distribution = .fill
-
-        qualityLabel.setContentHuggingPriority(.required, for: .horizontal)
-        qualityValueLabel.setContentHuggingPriority(.required, for: .horizontal)
-
         // Max width row
         let maxSizeLabel = NSTextField(labelWithString: "Max Width")
         maxSizeLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -139,7 +112,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         maxSizeLabel.setContentHuggingPriority(.required, for: .horizontal)
 
         rootStack.addArrangedSubview(generalHeader)
-        rootStack.addArrangedSubview(qualityRow)
         rootStack.addArrangedSubview(maxSizeRow)
         rootStack.addArrangedSubview(makeSeparator())
 
@@ -286,10 +258,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     private func populateFromSettings() {
         let settings = settingsStore.settings
 
-        // Quality
-        qualitySlider.integerValue = settings.quality
-        qualityValueLabel.stringValue = "\(settings.quality)"
-
         // Max width
         let indexForCurrent = maxSizePopUp.indexOfItem(withTag: settings.maxWidth)
         if indexForCurrent != -1 {
@@ -322,18 +290,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     }
 
     // MARK: - Actions
-
-    @objc private func qualitySliderChanged(_ sender: NSSlider) {
-        // Snap to nearest step of 5.
-        let rawValue = Int(sender.doubleValue.rounded())
-        let snapped = max(10, min(100, (rawValue / 5) * 5))
-        sender.integerValue = snapped
-        qualityValueLabel.stringValue = "\(snapped)"
-
-        settingsStore.update { settings in
-            settings.quality = snapped
-        }
-    }
 
     @objc private func maxSizeChanged(_ sender: NSPopUpButton) {
         let width = sender.selectedItem?.tag ?? 0

@@ -20,7 +20,6 @@ final class ScreenshotService: NSObject {
     private struct PreparedCaptureSave {
         let image: NSImage
         let targetURL: URL
-        let quality: Int
         let currentCounter: Int
     }
 
@@ -171,7 +170,7 @@ final class ScreenshotService: NSObject {
     }
 
     /// Saves an arbitrary image to the Desktop using the current settings
-    /// (quality, maxWidth, filename template) and returns the resulting URL.
+    /// (maxWidth, filename template) and returns the resulting URL.
     func saveImageToDesktop(_ image: NSImage) throws -> URL {
         let prepared = try prepareCaptureSave(for: image)
         return try persistPreparedCapture(prepared)
@@ -332,8 +331,8 @@ final class ScreenshotService: NSObject {
         ScreenshotServiceCoreLogic.resizedImageIfNeeded(image, maxWidth: maxWidth)
     }
 
-    private func jpegData(from image: NSImage, quality: Int) -> Data? {
-        ScreenshotServiceCoreLogic.jpegData(from: image, quality: quality)
+    private func pngData(from image: NSImage) -> Data? {
+        ScreenshotServiceCoreLogic.pngData(from: image)
     }
 
     private func uniqueScreenshotURL(in directory: URL, baseName: String) -> URL {
@@ -362,7 +361,6 @@ final class ScreenshotService: NSObject {
         let targetURL = uniqueScreenshotURL(in: desktopDirectory, baseName: baseName)
         return PreparedCaptureSave(image: finalImage,
                                    targetURL: targetURL,
-                                   quality: settings.quality,
                                    currentCounter: currentCounter)
     }
 
@@ -396,10 +394,10 @@ final class ScreenshotService: NSObject {
     }
 
     private func persistPreparedCapture(_ preparedSave: PreparedCaptureSave) throws -> URL {
-        guard let data = jpegData(from: preparedSave.image, quality: preparedSave.quality) else {
+        guard let data = pngData(from: preparedSave.image) else {
             throw NSError(domain: "ScreenshotService",
                           code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Failed to encode JPEG data."])
+                          userInfo: [NSLocalizedDescriptionKey: "Failed to encode PNG data."])
         }
 
         try data.write(to: preparedSave.targetURL, options: .atomic)

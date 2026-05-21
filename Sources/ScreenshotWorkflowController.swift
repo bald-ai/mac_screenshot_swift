@@ -73,12 +73,10 @@ final class ScreenshotWorkflowController {
     /// for a workflow, recovering embedded round-trip metadata on reopen.
     private static func resolveReopenMetadata(fileURL: URL, initialImage: NSImage?)
         -> (cleanOriginalPNG: Data?, image: NSImage?, prompt: String?) {
-        // Fresh capture: the in-memory image is already the clean original. Only
-        // snapshot it as PNG when the output is a PNG (embedding is PNG-only), so
-        // the common JPEG capture path skips an unnecessary encode.
+        // Fresh capture: the in-memory image is already the clean original.
+        // Snapshot it as PNG so it can be embedded as the round-trip baseline.
         if let initialImage {
-            let baseline = fileURL.pathExtension.lowercased() == "png" ? pngData(from: initialImage) : nil
-            return (baseline, nil, nil)
+            return (ScreenshotServiceCoreLogic.pngData(from: initialImage), nil, nil)
         }
         // Reopen: inspect the existing file for embedded round-trip metadata.
         guard let fileData = try? Data(contentsOf: fileURL) else {
@@ -92,11 +90,6 @@ final class ScreenshotWorkflowController {
             return (fileData, nil, nil)
         }
         return (nil, nil, nil)
-    }
-
-    private static func pngData(from image: NSImage) -> Data? {
-        guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: image) else { return nil }
-        return bitmap.representation(using: .png, properties: [:])
     }
 
     // MARK: - Public API
@@ -414,18 +407,16 @@ final class ScreenshotWorkflowController {
     /// note will be burned onto, or nil when the output is not a PNG.
     private func baselinePNGForEmbedding(preNoteImage: NSImage) -> Data? {
         guard fileURL.pathExtension.lowercased() == "png" else { return nil }
-        return Self.pngData(from: preNoteImage)
+        return ScreenshotServiceCoreLogic.pngData(from: preNoteImage)
     }
 
     private func encodeAndWriteImage(_ image: NSImage,
                                      baselinePNG: Data?,
                                      prompt: String?,
                                      errorTitle: String) -> Bool {
-        let quality = settingsStore.settings.quality
         guard let encoded = WorkflowImagePersistenceLogic.encodedImageData(
             from: image,
             originalURL: fileURL,
-            quality: quality,
             cleanOriginalPNG: baselinePNG,
             prompt: prompt,
             uniqueURL: { name, directory in
@@ -695,8 +686,9 @@ final class ScreenshotWorkflowController {
 
         do {
             if fm.fileExists(atPath: fileURL.path), fileURL != originalURL {
-                // If format conversion changed the output URL (e.g. HEIC -> JPG),
-                // remove the converted file before restoring the original.
+                // If format conversion changed the output URL (e.g. a non-PNG
+                // original rewritten to .png), remove the converted file before
+                // restoring the original.
                 try? fm.removeItem(at: fileURL)
             }
             if fm.fileExists(atPath: originalURL.path) {

@@ -15,12 +15,11 @@ enum WorkflowImagePersistenceLogic {
 
     static func encodedImageData(from image: NSImage,
                                  originalURL: URL,
-                                 quality: Int,
                                  cleanOriginalPNG: Data? = nil,
                                  prompt: String? = nil,
                                  uniqueURL: UniqueURLResolver) -> WorkflowEncodedImageResult? {
         // PNG-only: every image is encoded as PNG regardless of the original
-        // file's extension. PNG is lossless, so `quality` is unused.
+        // file's extension.
         let ext = originalURL.pathExtension.lowercased()
 
         guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: image) else { return nil }

@@ -716,12 +716,48 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     private func renderCompositeImage(croppingTo cropRect: NSRect) -> NSImage {
         let normalizedCrop = normalizedRect(cropRect)
-        let result = NSImage(size: normalizedCrop.size)
-        result.lockFocusFlipped(true)
+
+        // Render at the base image's native pixel resolution rather than the
+        // screen's backing scale. `NSImage.lockFocus` rasterizes at the current
+        // screen scale (2x on Retina), which silently doubled every image that
+        // passed through the editor. Drawing into an explicit bitmap keeps the
+        // edited image at the same resolution it came in with.
+        let pixelScale = baseImagePixelScale()
+        let pixelWidth = max(1, Int((normalizedCrop.width * pixelScale).rounded()))
+        let pixelHeight = max(1, Int((normalizedCrop.height * pixelScale).rounded()))
+
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: pixelWidth,
+                                         pixelsHigh: pixelHeight,
+                                         bitsPerSample: 8,
+                                         samplesPerPixel: 4,
+                                         hasAlpha: true,
+                                         isPlanar: false,
+                                         colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0,
+                                         bitsPerPixel: 0),
+              let bitmapContext = NSGraphicsContext(bitmapImageRep: rep) else {
+            return NSImage(size: normalizedCrop.size)
+        }
+        // Map the point-sized canvas coordinates onto the pixel-sized backing.
+        rep.size = normalizedCrop.size
+
+        // Reproduce the canvas view's flipped (top-left origin) coordinate space
+        // so the base image and annotations render exactly as they do on screen.
+        let context = NSGraphicsContext(cgContext: bitmapContext.cgContext, flipped: true)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        context.imageInterpolation = .high
+
+        let flip = NSAffineTransform()
+        flip.translateX(by: 0, yBy: normalizedCrop.height)
+        flip.scaleX(by: 1, yBy: -1)
+        flip.concat()
+
         NSColor.clear.setFill()
         NSRect(origin: .zero, size: normalizedCrop.size).fill()
 
-        NSGraphicsContext.saveGraphicsState()
         let translation = NSAffineTransform()
         translation.translateX(by: -normalizedCrop.minX, yBy: -normalizedCrop.minY)
         translation.concat()
@@ -738,8 +774,29 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         }
 
         NSGraphicsContext.restoreGraphicsState()
-        result.unlockFocus()
+
+        let result = NSImage(size: normalizedCrop.size)
+        result.addRepresentation(rep)
         return result
+    }
+
+    /// Points-to-pixels ratio of the base image, so edited output keeps the
+    /// screenshot's native resolution instead of the screen's backing scale.
+    private func baseImagePixelScale() -> CGFloat {
+        let pointWidth = baseImage.size.width
+        guard pointWidth > 0 else { return 1 }
+        let scale = baseImagePixelSize().width / pointWidth
+        return scale > 0 ? scale : 1
+    }
+
+    private func baseImagePixelSize() -> NSSize {
+        let largest = baseImage.representations
+            .compactMap { $0 as? NSBitmapImageRep }
+            .max(by: { $0.pixelsWide * $0.pixelsHigh < $1.pixelsWide * $1.pixelsHigh })
+        if let largest {
+            return NSSize(width: CGFloat(largest.pixelsWide), height: CGFloat(largest.pixelsHigh))
+        }
+        return baseImage.size
     }
 
     private var clampedSelectionRect: NSRect? {

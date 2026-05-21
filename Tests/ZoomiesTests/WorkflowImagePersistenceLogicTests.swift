@@ -11,7 +11,6 @@ final class WorkflowImagePersistenceLogicTests: XCTestCase {
             WorkflowImagePersistenceLogic.encodedImageData(
                 from: image,
                 originalURL: originalURL,
-                quality: 95,
                 uniqueURL: { proposedName, directory in
                     XCTAssertEqual(proposedName, "example.png")
                     return directory.appendingPathComponent("example_2.png")
@@ -31,7 +30,6 @@ final class WorkflowImagePersistenceLogicTests: XCTestCase {
             WorkflowImagePersistenceLogic.encodedImageData(
                 from: image,
                 originalURL: URL(fileURLWithPath: "/tmp/example.png"),
-                quality: 95,
                 cleanOriginalPNG: original,
                 prompt: "embed me",
                 uniqueURL: { name, directory in directory.appendingPathComponent(name) }
@@ -51,7 +49,6 @@ final class WorkflowImagePersistenceLogicTests: XCTestCase {
             WorkflowImagePersistenceLogic.encodedImageData(
                 from: image,
                 originalURL: URL(fileURLWithPath: "/tmp/example.png"),
-                quality: 95,
                 cleanOriginalPNG: original,
                 prompt: "",
                 uniqueURL: { name, directory in directory.appendingPathComponent(name) }
@@ -71,7 +68,6 @@ final class WorkflowImagePersistenceLogicTests: XCTestCase {
             WorkflowImagePersistenceLogic.encodedImageData(
                 from: image,
                 originalURL: URL(fileURLWithPath: "/tmp/example.jpg"),
-                quality: 95,
                 cleanOriginalPNG: original,
                 prompt: "embed me",
                 uniqueURL: { name, directory in directory.appendingPathComponent(name) }

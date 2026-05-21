@@ -58,6 +58,9 @@ final class ScreenshotServiceSaveTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
         XCTAssertEqual(output.lastPathComponent, "TestShot_7.png")
         XCTAssertEqual(settingsStore.settings.screenshotCounter, 8)
+        // The captured file must contain real PNG bytes, not JPEG-in-a-.png.
+        let savedData = try Data(contentsOf: output)
+        XCTAssertTrue(PNGMetadata.isPNG(savedData), "Saved capture should be a real PNG")
     }
 
     func testSaveImageToDesktopUsesSuffixWhenBaseNameExists() throws {

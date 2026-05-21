@@ -249,8 +249,7 @@ final class ScreenshotWorkflowControllerTests: XCTestCase {
         defer { TestSupport.removeIfExists(root) }
 
         let fileURL = root.appendingPathComponent("shot.jpg")
-        let jpeg = try XCTUnwrap(ScreenshotServiceCoreLogic.jpegData(from: TestSupport.solidImage(width: 80, height: 40),
-                                                                     quality: 90))
+        let jpeg = try TestSupport.solidImageJPEGData(width: 80, height: 40)
         try jpeg.write(to: fileURL, options: .atomic)
 
         let clipboardDirectory = root.appendingPathComponent("clipboard", isDirectory: true)
@@ -287,7 +286,6 @@ final class ScreenshotWorkflowControllerTests: XCTestCase {
                                           fileURL: root.appendingPathComponent("settings.json"))
         settingsStore.load()
         settingsStore.update { settings in
-            settings.quality = 95
             settings.notePrefixEnabled = false
         }
 

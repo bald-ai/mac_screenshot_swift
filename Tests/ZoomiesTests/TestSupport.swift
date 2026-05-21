@@ -36,6 +36,20 @@ enum TestSupport {
         return data
     }
 
+    /// Builds JPEG bytes for tests only. The app never encodes JPEG; this exists
+    /// solely to fabricate a non-PNG file and verify it gets converted to PNG.
+    static func solidImageJPEGData(width: CGFloat = 100,
+                                   height: CGFloat = 60,
+                                   color: NSColor = .systemBlue) throws -> Data {
+        let image = solidImage(width: width, height: height, color: color)
+        guard let tiff = image.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff),
+              let data = rep.representation(using: .jpeg, properties: [:]) else {
+            throw NSError(domain: "TestSupport", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to encode test JPEG image"])
+        }
+        return data
+    }
+
     static func writeSolidImagePNG(to url: URL,
                                    width: CGFloat = 100,
                                    height: CGFloat = 60,

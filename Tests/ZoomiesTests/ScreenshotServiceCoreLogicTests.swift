@@ -38,12 +38,6 @@ final class ScreenshotServiceCoreLogicTests: XCTestCase {
         XCTAssertEqual(resized.size.height, 50, accuracy: 0.01)
     }
 
-    func testJpegDataClampsOutOfRangeQuality() {
-        let image = TestSupport.solidImage(width: 120, height: 70)
-        XCTAssertNotNil(ScreenshotServiceCoreLogic.jpegData(from: image, quality: -30))
-        XCTAssertNotNil(ScreenshotServiceCoreLogic.jpegData(from: image, quality: 500))
-    }
-
     func testBitmapRepresentationPreservesBackingPixelDimensions() throws {
         let pointSize = NSSize(width: 200, height: 100)
         let pixelWidth = 400

@@ -29,11 +29,9 @@ enum ScreenshotServiceCoreLogic {
         }
     }
 
-    static func jpegData(from image: NSImage, quality: Int) -> Data? {
+    static func pngData(from image: NSImage) -> Data? {
         guard let bitmap = bitmapRepresentation(from: image) else { return nil }
-        let clamped = max(10, min(100, quality))
-        let compression = CGFloat(clamped) / 100.0
-        return bitmap.representation(using: .jpeg, properties: [.compressionFactor: compression])
+        return bitmap.representation(using: .png, properties: [:])
     }
 
     static func bitmapRepresentation(from image: NSImage) -> NSBitmapImageRep? {
