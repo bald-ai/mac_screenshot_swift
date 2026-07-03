@@ -3,6 +3,7 @@ import AppKit
 enum KeyCommand {
     case enter
     case commandEnter
+    case commandShiftEnter
     case commandBackspace
     case escape
     case tab
@@ -14,7 +15,9 @@ func interpretKeyCommand(from event: NSEvent) -> KeyCommand? {
 
     switch event.keyCode {
     case 36:
-        return flags.contains(.command) ? .commandEnter : .enter
+        if flags.contains(.command) && flags.contains(.shift) { return .commandShiftEnter }
+        if flags.contains(.command) { return .commandEnter }
+        return .enter
     case 51:
         return flags.contains(.command) ? .commandBackspace : nil
     case 53:
@@ -73,18 +76,6 @@ final class CommandAwareTextField: NSTextField, NSTextFieldDelegate {
             return true
         default:
             return false
-        }
-    }
-}
-
-class CommandAwareTextView: NSTextView {
-    var keyCommandHandler: ((KeyCommand) -> Void)?
-
-    override func keyDown(with event: NSEvent) {
-        if let command = interpretKeyCommand(from: event) {
-            keyCommandHandler?(command)
-        } else {
-            super.keyDown(with: event)
         }
     }
 }

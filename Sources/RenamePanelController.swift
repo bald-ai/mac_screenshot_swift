@@ -15,11 +15,16 @@ final class RenamePanelController: NSWindowController {
     private let textField = CommandAwareTextField()
     private let shortcutLabel = NSTextField(labelWithString: "")
     private var escapeKeyDeletesFile: Bool = true
+    private var returnTargetLabel: String = "Note"
+    private var showsCopyAndDiscard: Bool = true
 
     private var originalBaseName: String = ""
     private var originalExtension: String = ""
 
-    convenience init(initialFilename: String, escapeKeyDeletesFile: Bool = true) {
+    convenience init(initialFilename: String,
+                     escapeKeyDeletesFile: Bool = true,
+                     returnTargetLabel: String = "Note",
+                     showsCopyAndDiscard: Bool = true) {
         let contentRect = NSRect(x: 0, y: 0, width: 410, height: 215)
         let panel = FloatingInputPanel(contentRect: contentRect)
         panel.titleVisibility = .hidden
@@ -27,6 +32,8 @@ final class RenamePanelController: NSWindowController {
 
         self.init(window: panel)
         self.escapeKeyDeletesFile = escapeKeyDeletesFile
+        self.returnTargetLabel = returnTargetLabel
+        self.showsCopyAndDiscard = showsCopyAndDiscard
         configureFilenameMetadata(initialFilename: initialFilename)
         configureUI(initialFilename: initialFilename)
     }
@@ -51,7 +58,7 @@ final class RenamePanelController: NSWindowController {
         let container = MenuSurfaceMaterial.makeFillingView(frame: contentView.bounds)
         contentView.addSubview(container)
 
-        let titleLabel = NSTextField(labelWithString: "Filename")
+        let titleLabel = NSTextField(labelWithString: "Rename")
         titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
 
         textField.stringValue = WorkflowFilenameLogic.editableFilename(initialFilename)
@@ -74,10 +81,12 @@ final class RenamePanelController: NSWindowController {
             switch command {
             case .enter:
                 self.onAction?(.save(newName: self.textField.stringValue))
-            case .commandEnter:
+            case .commandEnter, .commandShiftEnter:
                 self.onAction?(.copyAndSave(newName: self.textField.stringValue))
             case .commandBackspace:
-                self.onAction?(.copyAndDelete(newName: self.textField.stringValue))
+                if self.showsCopyAndDiscard {
+                    self.onAction?(.copyAndDelete(newName: self.textField.stringValue))
+                }
             case .escape:
                 if self.escapeKeyDeletesFile {
                     self.onAction?(.delete)
@@ -92,7 +101,11 @@ final class RenamePanelController: NSWindowController {
         }
 
         let escapeLabel = escapeKeyDeletesFile ? "Delete" : "Close"
-        let shortcutsText = "Enter: Save    ⌘↩: Copy+Save    ⌘⌫: Copy+Delete    Esc: \(escapeLabel)    Tab: Note"
+        var shortcutParts = ["Keys:", "Enter: Save", "Cmd+Enter: Copy+Save"]
+        if showsCopyAndDiscard { shortcutParts.append("Cmd+Backspace: Copy+Delete") }
+        shortcutParts.append("Esc: \(escapeLabel)")
+        shortcutParts.append("Tab: \(returnTargetLabel)")
+        let shortcutsText = shortcutParts.joined(separator: "    ")
         shortcutLabel.stringValue = shortcutsText
         shortcutLabel.font = NSFont.systemFont(ofSize: 11)
         shortcutLabel.textColor = NSColor.secondaryLabelColor

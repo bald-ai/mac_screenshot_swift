@@ -2,6 +2,7 @@
 
 # SwiftPM / Swift compiler build output (includes index store databases like data.mdb).
 .build/
+dist/
 .tmp_cache/
 .tmp_home/
 

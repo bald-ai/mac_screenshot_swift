@@ -16,6 +16,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
     private let areaShortcutRecorder: ShortcutRecorderView
     private let fullShortcutRecorder: ShortcutRecorderView
     private let reopenShortcutRecorder: ShortcutRecorderView
+    private let scratchpadShortcutRecorder: ShortcutRecorderView
     private let duplicateWarningLabel: NSTextField
 
     /// Fixed set of max-width options shown in the dropdown.
@@ -34,9 +35,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         areaShortcutRecorder = ShortcutRecorderView(frame: .zero)
         fullShortcutRecorder = ShortcutRecorderView(frame: .zero)
         reopenShortcutRecorder = ShortcutRecorderView(frame: .zero)
+        scratchpadShortcutRecorder = ShortcutRecorderView(frame: .zero)
         duplicateWarningLabel = NSTextField(labelWithString: "")
 
-        let contentRect = NSRect(x: 0, y: 0, width: 520, height: 490)
+        let contentRect = NSRect(x: 0, y: 0, width: 520, height: 520)
         let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         let window = NSWindow(contentRect: contentRect, styleMask: style, backing: .buffered, defer: false)
         window.center()
@@ -61,6 +63,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         areaShortcutRecorder.isRecordingShortcut
         || fullShortcutRecorder.isRecordingShortcut
         || reopenShortcutRecorder.isRecordingShortcut
+        || scratchpadShortcutRecorder.isRecordingShortcut
     }
 
     required init?(coder: NSCoder) {
@@ -166,8 +169,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         let areaLabel = NSTextField(labelWithString: "Screenshot Area:")
         let fullLabel = NSTextField(labelWithString: "Screenshot Full:")
         let reopenLabel = NSTextField(labelWithString: "Reopen Finder Selection:")
+        let scratchpadLabel = NSTextField(labelWithString: "Scratchpad:")
 
-        [areaLabel, fullLabel, reopenLabel].forEach { label in
+        [areaLabel, fullLabel, reopenLabel, scratchpadLabel].forEach { label in
             label.setContentHuggingPriority(.required, for: .horizontal)
             label.setContentCompressionResistancePriority(.required, for: .horizontal)
         }
@@ -175,7 +179,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         areaShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
         fullShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
         reopenShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
-        [areaShortcutRecorder, fullShortcutRecorder, reopenShortcutRecorder].forEach { recorder in
+        scratchpadShortcutRecorder.translatesAutoresizingMaskIntoConstraints = false
+        scratchpadShortcutRecorder.setAccessibilityIdentifier("settings.shortcut.scratchpad")
+        [areaShortcutRecorder, fullShortcutRecorder, reopenShortcutRecorder, scratchpadShortcutRecorder].forEach { recorder in
             recorder.setContentHuggingPriority(.required, for: .horizontal)
             recorder.setContentCompressionResistancePriority(.required, for: .horizontal)
         }
@@ -188,6 +194,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         }
         reopenShortcutRecorder.onChange = { [weak self] value in
             self?.handleShortcutChange(kind: .reopenFinderSelection, newValue: value)
+        }
+        scratchpadShortcutRecorder.onChange = { [weak self] value in
+            self?.handleShortcutChange(kind: .scratchpad, newValue: value)
         }
 
         let areaSpacer = NSView()
@@ -214,6 +223,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         reopenRow.distribution = .fill
         reopenRow.spacing = 14
 
+        let scratchpadSpacer = NSView()
+        scratchpadSpacer.translatesAutoresizingMaskIntoConstraints = false
+        let scratchpadRow = NSStackView(views: [scratchpadLabel, scratchpadSpacer, scratchpadShortcutRecorder])
+        scratchpadRow.orientation = .horizontal
+        scratchpadRow.alignment = .centerY
+        scratchpadRow.distribution = .fill
+        scratchpadRow.spacing = 14
+
         // Duplicate warning label
         duplicateWarningLabel.textColor = NSColor.systemRed
         duplicateWarningLabel.isHidden = true
@@ -222,15 +239,18 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         rootStack.addArrangedSubview(areaRow)
         rootStack.addArrangedSubview(fullRow)
         rootStack.addArrangedSubview(reopenRow)
+        rootStack.addArrangedSubview(scratchpadRow)
         rootStack.addArrangedSubview(duplicateWarningLabel)
 
         NSLayoutConstraint.activate([
             areaRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
             fullRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
             reopenRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
+            scratchpadRow.widthAnchor.constraint(equalTo: rootStack.widthAnchor),
             areaShortcutRecorder.widthAnchor.constraint(equalToConstant: 300),
             fullShortcutRecorder.widthAnchor.constraint(equalTo: areaShortcutRecorder.widthAnchor),
-            reopenShortcutRecorder.widthAnchor.constraint(equalTo: areaShortcutRecorder.widthAnchor)
+            reopenShortcutRecorder.widthAnchor.constraint(equalTo: areaShortcutRecorder.widthAnchor),
+            scratchpadShortcutRecorder.widthAnchor.constraint(equalTo: areaShortcutRecorder.widthAnchor)
         ])
     }
 
@@ -287,6 +307,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         areaShortcutRecorder.recordedShortcut = .init(from: shortcuts.screenshotArea)
         fullShortcutRecorder.recordedShortcut = .init(from: shortcuts.screenshotFull)
         reopenShortcutRecorder.recordedShortcut = .init(from: shortcuts.reopenFinderSelection)
+        scratchpadShortcutRecorder.recordedShortcut = .init(from: shortcuts.openScratchpad)
     }
 
     // MARK: - Actions
@@ -324,6 +345,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         case area
         case full
         case reopenFinderSelection
+        case scratchpad
     }
 
     private func handleShortcutChange(kind: ShortcutKind, newValue: ShortcutRecorderView.RecordedShortcut) {
@@ -340,6 +362,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
             shortcuts.screenshotFull = newShortcut
         case .reopenFinderSelection:
             shortcuts.reopenFinderSelection = newShortcut
+        case .scratchpad:
+            shortcuts.openScratchpad = newShortcut
         }
 
         if hasDuplicate(shortcuts: shortcuts) {
@@ -366,7 +390,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTe
         let values: [Shortcut] = [
             shortcuts.screenshotArea,
             shortcuts.screenshotFull,
-            shortcuts.reopenFinderSelection
+            shortcuts.reopenFinderSelection,
+            shortcuts.openScratchpad
         ]
         let set = Set(values)
         return set.count < values.count

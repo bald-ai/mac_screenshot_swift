@@ -48,6 +48,9 @@ extension Settings {
         // Ensure screenshot counter is always >= 1.
         copy.screenshotCounter = max(1, screenshotCounter)
 
+        // Move older shipped defaults to the current product-intended defaults.
+        copy.shortcuts.replaceRetiredDefaultShortcutsIfNeeded()
+
         // Enforce filename template invariants.
         copy.filenameTemplate.ensureTimeOrCounterEnabled()
 
@@ -76,28 +79,75 @@ struct Shortcuts: Codable, Equatable {
     var screenshotArea: Shortcut
     var screenshotFull: Shortcut
     var reopenFinderSelection: Shortcut
+    var openScratchpad: Shortcut
 }
 
 extension Shortcuts {
     /// Reasonable, non-conflicting defaults.
     /// These can later be changed via the shortcut recorder UI.
     static let `default` = Shortcuts(
-        // Ctrl + Shift + 4
+        // Option + Shift + 4
         screenshotArea: Shortcut(
             keyCode: UInt32(kVK_ANSI_4),
-            modifierFlags: UInt32(controlKey | shiftKey)
+            modifierFlags: UInt32(optionKey | shiftKey)
         ),
-        // Ctrl + Shift + 3
+        // Option + Shift + 3
         screenshotFull: Shortcut(
             keyCode: UInt32(kVK_ANSI_3),
-            modifierFlags: UInt32(controlKey | shiftKey)
+            modifierFlags: UInt32(optionKey | shiftKey)
         ),
-        // Ctrl + Shift + 2
+        // Option + Shift + 2
         reopenFinderSelection: Shortcut(
+            keyCode: UInt32(kVK_ANSI_2),
+            modifierFlags: UInt32(optionKey | shiftKey)
+        ),
+        // Option + Shift + 5
+        openScratchpad: Shortcut(
+            keyCode: UInt32(kVK_ANSI_5),
+            modifierFlags: UInt32(optionKey | shiftKey)
+        )
+    )
+}
+
+extension Shortcuts {
+    mutating func replaceRetiredDefaultShortcutsIfNeeded() {
+        let retiredArea = Shortcut(
+            keyCode: UInt32(kVK_ANSI_4),
+            modifierFlags: UInt32(controlKey | shiftKey)
+        )
+        let retiredFull = Shortcut(
+            keyCode: UInt32(kVK_ANSI_3),
+            modifierFlags: UInt32(controlKey | shiftKey)
+        )
+        let retiredReopenFinderSelection = Shortcut(
             keyCode: UInt32(kVK_ANSI_2),
             modifierFlags: UInt32(controlKey | shiftKey)
         )
-    )
+        let retiredOpenScratchpad = Shortcut(
+            keyCode: UInt32(kVK_ANSI_5),
+            modifierFlags: UInt32(cmdKey | shiftKey)
+        )
+        let temporaryOpenScratchpad = Shortcut(
+            keyCode: UInt32(kVK_ANSI_N),
+            modifierFlags: UInt32(controlKey | shiftKey)
+        )
+
+        if screenshotArea == retiredArea {
+            screenshotArea = Shortcuts.default.screenshotArea
+        }
+        if screenshotFull == retiredFull {
+            screenshotFull = Shortcuts.default.screenshotFull
+        }
+        if reopenFinderSelection == retiredReopenFinderSelection {
+            reopenFinderSelection = Shortcuts.default.reopenFinderSelection
+        }
+        if openScratchpad == retiredOpenScratchpad {
+            openScratchpad = Shortcuts.default.openScratchpad
+        }
+        if openScratchpad == temporaryOpenScratchpad {
+            openScratchpad = Shortcuts.default.openScratchpad
+        }
+    }
 }
 
 extension Shortcuts {
@@ -106,6 +156,7 @@ extension Shortcuts {
         case screenshotArea
         case screenshotFull
         case reopenFinderSelection
+        case openScratchpad
     }
 
     init(from decoder: Decoder) throws {
@@ -116,6 +167,8 @@ extension Shortcuts {
             ?? Shortcuts.default.screenshotFull
         self.reopenFinderSelection = try container.decodeIfPresent(Shortcut.self, forKey: .reopenFinderSelection)
             ?? Shortcuts.default.reopenFinderSelection
+        self.openScratchpad = try container.decodeIfPresent(Shortcut.self, forKey: .openScratchpad)
+            ?? Shortcuts.default.openScratchpad
     }
 }
 

@@ -6,8 +6,8 @@ import Carbon
 ///
 /// This service owns the lifecycle of the global hotkeys and provides a small
 /// surface area for the rest of the app:
-/// - `registerShortcuts(settings:areaHandler:fullHandler:)` is
-///    called once on launch from `AppDelegate`.
+/// - `registerShortcuts(settings:areaHandler:fullHandler:reopenFinderSelectionHandler:openScratchpadHandler:)`
+///    is called once on launch from `AppDelegate`.
 /// - `updateShortcuts(settings:)` is called whenever the user changes shortcut
 ///    preferences in the settings window.
 final class HotKeyService {
@@ -17,6 +17,7 @@ final class HotKeyService {
         case screenshotArea = 1
         case screenshotFull = 2
         case reopenFinderSelection = 3
+        case openScratchpad = 4
     }
 
     private struct Registration {
@@ -33,8 +34,22 @@ final class HotKeyService {
     private var areaHandler: Handler?
     private var fullHandler: Handler?
     private var reopenFinderSelectionHandler: Handler?
+    private var openScratchpadHandler: Handler?
 
-    init() {
+    private let registerHotKey: (UInt32, UInt32, EventHotKeyID) -> EventHotKeyRef?
+    private let unregisterHotKey: (EventHotKeyRef) -> Void
+
+    /// Called (with human-readable descriptions) when one or more shortcuts fail
+    /// to register — typically because the combo is already owned by macOS or
+    /// another app. Lets the app surface the problem instead of failing silently.
+    var onRegistrationFailures: (([String]) -> Void)?
+
+    init(
+        registerHotKey: @escaping (UInt32, UInt32, EventHotKeyID) -> EventHotKeyRef? = HotKeyService.registerCarbonHotKey,
+        unregisterHotKey: @escaping (EventHotKeyRef) -> Void = HotKeyService.unregisterCarbonHotKey
+    ) {
+        self.registerHotKey = registerHotKey
+        self.unregisterHotKey = unregisterHotKey
         installEventHandlerIfNeeded()
     }
 
@@ -50,11 +65,13 @@ final class HotKeyService {
         settings: Settings,
         areaHandler: @escaping Handler,
         fullHandler: @escaping Handler,
-        reopenFinderSelectionHandler: @escaping Handler
+        reopenFinderSelectionHandler: @escaping Handler,
+        openScratchpadHandler: @escaping Handler
     ) {
         self.areaHandler = areaHandler
         self.fullHandler = fullHandler
         self.reopenFinderSelectionHandler = reopenFinderSelectionHandler
+        self.openScratchpadHandler = openScratchpadHandler
 
         applyShortcuts(from: settings)
     }
@@ -64,7 +81,8 @@ final class HotKeyService {
     /// This is used by the settings window when the user records new
     /// key combinations.
     func updateShortcuts(settings: Settings) {
-        guard areaHandler != nil, fullHandler != nil, reopenFinderSelectionHandler != nil else {
+        guard areaHandler != nil, fullHandler != nil,
+              reopenFinderSelectionHandler != nil, openScratchpadHandler != nil else {
             return
         }
         applyShortcuts(from: settings)
@@ -76,42 +94,54 @@ final class HotKeyService {
         unregisterAll()
         installEventHandlerIfNeeded()
 
-        registerShortcut(kind: .screenshotArea,
-                         shortcut: settings.shortcuts.screenshotArea,
-                         handler: areaHandler)
-        registerShortcut(kind: .screenshotFull,
-                         shortcut: settings.shortcuts.screenshotFull,
-                         handler: fullHandler)
-        registerShortcut(kind: .reopenFinderSelection,
-                         shortcut: settings.shortcuts.reopenFinderSelection,
-                         handler: reopenFinderSelectionHandler)
+        var failures: [String] = []
+
+        func register(_ kind: HotKeyKind, _ shortcut: Shortcut, _ handler: Handler?) {
+            guard handler != nil else { return }
+            if !registerShortcut(kind: kind, shortcut: shortcut, handler: handler) {
+                let combo = HotKeyService.describeShortcut(keyCode: shortcut.keyCode, carbonFlags: shortcut.modifierFlags)
+                failures.append("\(HotKeyService.description(for: kind)): \(combo)")
+            }
+        }
+
+        register(.screenshotArea, settings.shortcuts.screenshotArea, areaHandler)
+        register(.screenshotFull, settings.shortcuts.screenshotFull, fullHandler)
+        register(.reopenFinderSelection, settings.shortcuts.reopenFinderSelection, reopenFinderSelectionHandler)
+        register(.openScratchpad, settings.shortcuts.openScratchpad, openScratchpadHandler)
+
+        if !failures.isEmpty {
+            onRegistrationFailures?(failures)
+        }
     }
 
-    private func registerShortcut(kind: HotKeyKind, shortcut: Shortcut, handler: Handler?) {
-        guard let handler = handler else { return }
+    /// Returns true if the shortcut registered successfully.
+    @discardableResult
+    private func registerShortcut(kind: HotKeyKind, shortcut: Shortcut, handler: Handler?) -> Bool {
+        guard let handler = handler else { return true }
 
-        var hotKeyRef: EventHotKeyRef?
         var hotKeyID = EventHotKeyID()
         hotKeyID.signature = HotKeyService.hotKeySignature
         hotKeyID.id = kind.rawValue
 
-        let status = RegisterEventHotKey(
-            UInt32(shortcut.keyCode),
-            shortcut.modifierFlags,
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
-
-        if status == noErr, let ref = hotKeyRef {
+        if let ref = registerHotKey(UInt32(shortcut.keyCode), shortcut.modifierFlags, hotKeyID) {
             registrations[hotKeyID.id] = Registration(ref: ref, handler: handler)
+            return true
+        }
+        return false
+    }
+
+    private static func description(for kind: HotKeyKind) -> String {
+        switch kind {
+        case .screenshotArea: return "Screenshot Area"
+        case .screenshotFull: return "Screenshot Full"
+        case .reopenFinderSelection: return "Reopen Finder Selection"
+        case .openScratchpad: return "Scratchpad"
         }
     }
 
     private func unregisterAll() {
         for (_, registration) in registrations {
-            UnregisterEventHotKey(registration.ref)
+            unregisterHotKey(registration.ref)
         }
         registrations.removeAll()
     }
@@ -139,7 +169,7 @@ final class HotKeyService {
         }
     }
 
-    fileprivate func handleHotKey(with id: EventHotKeyID) {
+    func handleHotKey(with id: EventHotKeyID) {
         guard id.signature == HotKeyService.hotKeySignature else {
             return
         }
@@ -157,6 +187,25 @@ final class HotKeyService {
             result = (result << 8) | UInt32(byte)
         }
         return OSType(result)
+    }
+
+    private static func registerCarbonHotKey(keyCode: UInt32,
+                                             modifierFlags: UInt32,
+                                             hotKeyID: EventHotKeyID) -> EventHotKeyRef? {
+        var hotKeyRef: EventHotKeyRef?
+        let status = RegisterEventHotKey(
+            keyCode,
+            modifierFlags,
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKeyRef
+        )
+        return status == noErr ? hotKeyRef : nil
+    }
+
+    private static func unregisterCarbonHotKey(_ ref: EventHotKeyRef) {
+        UnregisterEventHotKey(ref)
     }
 
     /// Converts Cocoa modifier flags to Carbon flags suitable for

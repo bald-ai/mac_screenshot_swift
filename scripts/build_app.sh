@@ -97,6 +97,7 @@ rm -rf "${APP_DIR}"
 mkdir -p "${APP_MACOS}" "${APP_RESOURCES}"
 
 cp "${EXECUTABLE_PATH}" "${APP_MACOS}/${PRODUCT_NAME}"
+strip -S -x "${APP_MACOS}/${PRODUCT_NAME}"
 cp -R "${RESOURCE_BUNDLE}" "${APP_RESOURCES}/"
 
 SCREENSHOT_SOUND="${RESOURCE_BUNDLE}/screenshot-sound.mp3"

@@ -1,58 +1,71 @@
 # Zoomies
 
-> **Requires macOS 14 (Sonoma) or later.**
+_Take and copy paste screen in 2 seconds. Rename? 3 seconds. Rename + annotate with prompt for agent? 5 seconds. Quick edit? 7? maybe 10..._
 
-Small keyboard-first macOS screenshot app I use daily.
+> **Requires macOS 14 (Sonoma) or later.** If you have an older macOS version, it is probably best to use this as a product spec and build your own. I had enough headaches with older OS versions already.
 
-If it helps you, awesome.  
-If not, no worries.  
-Fork it, change it, rebuild it.
+Mac-only keyboard-first screenshot and scratchpad app for agentic coding.
+Good for touchpad users too, especially if your wrist is already cooked from gaming.
 
-Status: **beta (`v0.x`)**
+Fork it, pork it, change it, rebuild it. Have fun.
 
 ## What It Does
 
-- Fast area capture and full-screen capture on the display under the mouse.
-- Saves captures at native pixel resolution, with optional max-width downscaling.
-- Quick post-capture flow: rename, note, edit, save/copy/delete.
-- Rename field edits the visible filename only; Zoomies keeps the `.jpg` extension automatically.
-- Simple annotation editor (pen, arrow, rectangle, ellipse, text).
-- Keyboard-driven workflow.
+- Captures the exact UI state you want a coding agent to understand.
+- Adds quick notes/prompts to screenshots so the context travels with the image.
+- Creates quick scratchpad notes for errors, issues, and ideas you spot in one project while your head is still in another.
+- Lets you rename, annotate, save, copy, or delete without breaking coding flow.
+- Reopens a selected Finder image and sends it back through the Zoomies flow.
 
 ## Quick Start
 
 ```bash
-cd /Users/michalkrsik/windsurf_project_folder/mac_screenshot_swift
+cd mac_screenshot_swift
 swift build
 swift run Zoomies
 ```
 
+This repo is source-only. If you want a clickable `.app`, ask any coding agent to package the SwiftPM project into a macOS app bundle for you.
+
 ## Default Shortcuts
 
-- `Ctrl+Shift+4` -> area capture
-- `Ctrl+Shift+3` -> full-screen capture
-- `Ctrl+Shift+2` -> select an image in Finder, press this to edit/rename it with Zoomies
+- `Option+Shift+4` -> area capture
+- `Option+Shift+3` -> full-screen capture
+- `Option+Shift+2` -> select an image in Finder, press this to edit/rename it with Zoomies
+- `Option+Shift+5` -> create a scratchpad note
 
-Area capture now shows the overlay immediately on hotkey, without waiting for app activation.
+The defaults intentionally avoid the standard macOS `Cmd+Shift` screenshot shortcuts.
 
-## Rebinding Shortcuts
+## Workflow Keybinds
 
-I recommend rebinding to the default macOS screenshot shortcuts (`Cmd+Shift+3` / `Cmd+Shift+4`) — they are way more comfortable.
-
-1. First, unbind or rebind the default macOS shortcuts: go to `System Settings` -> `Keyboard` -> `Keyboard Shortcuts` -> `Screenshots` and disable them or change them to something else (I use `Option+Shift+3` / `Option+Shift+4` for the macOS ones).
-2. Then open the Zoomies menu bar icon -> `Settings` -> `Shortcuts`, and set `Cmd+Shift+3` / `Cmd+Shift+4` / `Cmd+Shift+2` for Zoomies.
+| Screen | Key | Action |
+| --- | --- | --- |
+| Rename / Prompt | `Enter` | Save |
+| Rename / Prompt | `Cmd+Enter` | Copy + save |
+| Rename / Prompt | `Cmd+Backspace` | Copy + delete |
+| Rename / Prompt | `Esc` | Delete / close |
+| Flow | `Tab` | Next step |
+| Flow | `Shift+Tab` | Previous step |
+| Edit | `W` / `A` / `R` / `E` / `T` / `S` | Pen / arrow / rectangle / ellipse / text / select |
+| Edit | `K` or `Q` | Open colors |
+| Edit | `1-6` | Pick color |
+| Edit | `Cmd+Z` | Undo |
+| Edit | `Option+Backspace` | Clear |
+| Edit | `Cmd+C` / `Cmd+X` / `Cmd+V` | Copy / cut / paste |
+| Edit | `Cmd +` / `Cmd -` / `Cmd 0` | Zoom in / out / reset |
+| Edit | `Enter` | Save |
+| Edit | `Cmd+Enter` | Copy + save |
+| Edit | `Esc` | Cancel |
 
 ## Permissions
 
 The app uses `ScreenCaptureKit` (`SCScreenshotManager`) for all screen capture. macOS will prompt once for Screen Recording permission.
 
 - **Screen Recording** (for screenshots via ScreenCaptureKit)
-- **Automation / Finder** (for reopening flow on selected Finder image via `Ctrl+Shift+2`)
+- **Automation / Finder** (for reopening flow on selected Finder image via `Option+Shift+2`)
 
-## Ideas, Issues, PRs
+## TODO
 
-- Bug? Open an issue.
-- Idea? Open an issue with `[Idea]` in the title.
-- Want to contribute code? Open a PR.
-
-Project is maintainer-led: feedback is welcome, and final merge/product decisions are made by the maintainer.
+- Make a video demonstration?
+- Make a screen demonstration?
+- Add a donation option and create a `$1` validation flow?

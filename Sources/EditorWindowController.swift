@@ -26,6 +26,7 @@ final class EditorWindowController: NSWindowController {
     private let notePreviewRaw: String?
     private let targetScreen: NSScreen?
     private var notePreviewContainer: NSView?
+    private let editorShortcutLabel = NSTextField(labelWithString: "")
     // Toolbar Cancel (X) should mirror the Escape behavior:
     // - For editor sessions that own the temp file: delete on cancel.
     // - For Finder-selected originals: close without deleting.
@@ -203,6 +204,10 @@ final class EditorWindowController: NSWindowController {
 
         rootStack.addArrangedSubview(toolbarBackground)
 
+        configureEditorShortcutLabel()
+        rootStack.addArrangedSubview(editorShortcutLabel)
+        editorShortcutLabel.widthAnchor.constraint(equalTo: rootStack.widthAnchor).isActive = true
+
         scrollView.borderType = .noBorder
         scrollView.drawsBackground = false
         // Native screenshot/markup windows do not show scrollers; panning still works
@@ -287,6 +292,16 @@ final class EditorWindowController: NSWindowController {
         background.layer?.cornerRadius = 10
         background.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.55).cgColor
         return background
+    }
+
+    private func configureEditorShortcutLabel() {
+        editorShortcutLabel.stringValue = "Keys: W Pen    A Arrow    R Rectangle    E Ellipse    T Text    S Select    K/Q Colors    1-6 Pick color    Cmd+Z Undo    Option+Backspace Clear    Cmd+C/X/V Copy/Cut/Paste    Cmd +/-/0 Zoom    Shift+Tab Prompt    Enter Save    Cmd+Enter Copy+Save    Esc Cancel"
+        editorShortcutLabel.font = NSFont.systemFont(ofSize: 11)
+        editorShortcutLabel.textColor = NSColor.secondaryLabelColor
+        editorShortcutLabel.alignment = .center
+        editorShortcutLabel.lineBreakMode = .byWordWrapping
+        editorShortcutLabel.maximumNumberOfLines = 0
+        editorShortcutLabel.translatesAutoresizingMaskIntoConstraints = false
     }
 
     private func makeToolbarStack() -> NSStackView {
@@ -706,10 +721,11 @@ final class EditorWindowController: NSWindowController {
         let minW: CGFloat = 580.0
         let minH: CGFloat = 250.0
         let toolbarH: CGFloat = toolbarMinimumHeight
+        let shortcutH: CGFloat = editorShortcutLabel.fittingSize.height
         let noteH: CGFloat = (notePreviewContainer?.fittingSize.height ?? 0)
         let chromeW: CGFloat = 24.0
         // Root stack spacing is 10. If we have a note preview bar, add its height + spacing.
-        let chromeH: CGFloat = 24.0 + toolbarH + 10.0 + (noteH > 0 ? (10.0 + noteH) : 0.0)
+        let chromeH: CGFloat = 24.0 + toolbarH + 10.0 + shortcutH + 10.0 + (noteH > 0 ? (10.0 + noteH) : 0.0)
         let minContentSize = NSSize(width: minW, height: minH)
         let maxContentSize = EditorWindowLayoutLogic.maximumContentSize(
             visibleFrame: targetScreen?.visibleFrame ?? window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame,

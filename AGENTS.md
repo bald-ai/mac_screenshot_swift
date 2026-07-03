@@ -43,7 +43,7 @@ Do not reintroduce `screencapture` CLI or `CGDisplayCreateImage` fallbacks.
 
 ## Project Notes
 ### Keybinds
-IMPORTANT: The app uses Ctrl+Shift+3, Ctrl+Shift+4, and Ctrl+Shift+2 for shortcuts by default.
+IMPORTANT: The app uses Option+Shift+3, Option+Shift+4, Option+Shift+2, and Option+Shift+5 for shortcuts by default.
 These are the current default shortcuts in source.
 Do not suggest changing keybinds; assume they are configured as-is unless the user asks.
 

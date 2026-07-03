@@ -34,22 +34,46 @@ final class HotKeyServiceTests: XCTestCase {
         service.updateShortcuts(settings: .default)
     }
 
-    func testRegisterAndUpdateShortcutsFlow() {
-        let service = HotKeyService()
+    func testRegisterAndUpdateShortcutsRoutesRegisteredHotKeys() {
+        var registeredIDs: [EventHotKeyID] = []
+        var unregisteredRefs: [EventHotKeyRef] = []
+        let service = HotKeyService(
+            registerHotKey: { _, _, id in
+                registeredIDs.append(id)
+                return EventHotKeyRef(bitPattern: registeredIDs.count)
+            },
+            unregisterHotKey: { ref in
+                unregisteredRefs.append(ref)
+            }
+        )
         var areaCalls = 0
         var fullCalls = 0
         var reopenCalls = 0
+        var scratchpadCalls = 0
 
         service.registerShortcuts(
             settings: .default,
             areaHandler: { areaCalls += 1 },
             fullHandler: { fullCalls += 1 },
-            reopenFinderSelectionHandler: { reopenCalls += 1 }
+            reopenFinderSelectionHandler: { reopenCalls += 1 },
+            openScratchpadHandler: { scratchpadCalls += 1 }
         )
+
+        XCTAssertEqual(registeredIDs.count, 4)
+        service.handleHotKey(with: registeredIDs[0])
+        service.handleHotKey(with: registeredIDs[1])
+        service.handleHotKey(with: registeredIDs[2])
+        service.handleHotKey(with: registeredIDs[3])
+        XCTAssertEqual(areaCalls, 1)
+        XCTAssertEqual(fullCalls, 1)
+        XCTAssertEqual(reopenCalls, 1)
+        XCTAssertEqual(scratchpadCalls, 1)
+
         service.updateShortcuts(settings: .default)
 
-        XCTAssertEqual(areaCalls, 0)
-        XCTAssertEqual(fullCalls, 0)
-        XCTAssertEqual(reopenCalls, 0)
+        XCTAssertEqual(unregisteredRefs.count, 4)
+        XCTAssertEqual(registeredIDs.count, 8)
+        service.handleHotKey(with: registeredIDs[4])
+        XCTAssertEqual(areaCalls, 2)
     }
 }

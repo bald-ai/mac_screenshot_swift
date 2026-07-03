@@ -16,6 +16,8 @@ final class NotePanelController: NSWindowController {
     private let textView = LockedWhiteNoteTextView(frame: .zero, textContainer: nil)
     private let shortcutLabel = NSTextField(labelWithString: "")
     private var escapeKeyDeletesFile: Bool = true
+    private var showsCopyAndDelete: Bool = true
+    private var showsEditorShortcut: Bool = true
 
     private static let maxLength = 1000
 
@@ -24,7 +26,10 @@ final class NotePanelController: NSWindowController {
         set { textView.setFixedWhiteString(String(newValue.prefix(Self.maxLength))) }
     }
 
-    convenience init(initialText: String, escapeKeyDeletesFile: Bool = true) {
+    convenience init(initialText: String,
+                     escapeKeyDeletesFile: Bool = true,
+                     showsCopyAndDelete: Bool = true,
+                     showsEditorShortcut: Bool = true) {
         let contentRect = NSRect(x: 0, y: 0, width: 410, height: 120)
         let panel = FloatingInputPanel(contentRect: contentRect)
         panel.titleVisibility = .hidden
@@ -32,6 +37,8 @@ final class NotePanelController: NSWindowController {
 
         self.init(window: panel)
         self.escapeKeyDeletesFile = escapeKeyDeletesFile
+        self.showsCopyAndDelete = showsCopyAndDelete
+        self.showsEditorShortcut = showsEditorShortcut
         configureUI(initialText: initialText)
     }
 
@@ -49,7 +56,7 @@ final class NotePanelController: NSWindowController {
         let container = MenuSurfaceMaterial.makeFillingView(frame: contentView.bounds)
         contentView.addSubview(container)
 
-        let titleLabel = NSTextField(labelWithString: "Note")
+        let titleLabel = NSTextField(labelWithString: "Prompt / Note")
         titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
 
         textView.font = NSFont.systemFont(ofSize: 13)
@@ -70,8 +77,12 @@ final class NotePanelController: NSWindowController {
                 self.onAction?(.save(text: value))
             case .commandEnter:
                 self.onAction?(.copyAndSave(text: value))
+            case .commandShiftEnter:
+                break
             case .commandBackspace:
-                self.onAction?(.copyAndDelete(text: value))
+                if self.showsCopyAndDelete {
+                    self.onAction?(.copyAndDelete(text: value))
+                }
             case .escape:
                 if self.escapeKeyDeletesFile {
                     self.onAction?(.delete)
@@ -79,7 +90,9 @@ final class NotePanelController: NSWindowController {
                     self.onAction?(.close)
                 }
             case .tab:
-                self.onAction?(.goToEditor(text: value))
+                if self.showsEditorShortcut {
+                    self.onAction?(.goToEditor(text: value))
+                }
             case .shiftTab:
                 self.onAction?(.backToRename(text: value))
             }
@@ -99,8 +112,12 @@ final class NotePanelController: NSWindowController {
         shortcutLabel.textColor = NSColor.secondaryLabelColor
         shortcutLabel.lineBreakMode = .byWordWrapping
         let escapeLabel = escapeKeyDeletesFile ? "Delete" : "Close"
-        let shortcutsText = "Enter: Save    ⌘↩: Copy+Save    ⌘⌫: Copy+Delete    Esc: \(escapeLabel)    Shift+Tab: Rename    Tab: Editor"
-        shortcutLabel.stringValue = shortcutsText
+        var shortcutParts = ["Keys:", "Enter: Save", "Cmd+Enter: Copy+Save"]
+        if showsCopyAndDelete { shortcutParts.append("Cmd+Backspace: Copy+Delete") }
+        shortcutParts.append("Esc: \(escapeLabel)")
+        shortcutParts.append("Shift+Tab: Rename")
+        if showsEditorShortcut { shortcutParts.append("Tab: Edit") }
+        shortcutLabel.stringValue = shortcutParts.joined(separator: "    ")
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 18),

@@ -24,8 +24,17 @@ final class FloatingInputPanel: NSPanel {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let chars = event.charactersIgnoringModifiers?.lowercased()
+
+        // NSText has no `undo:` action, so drive the first-responder text view's
+        // undoManager directly. ⌘Z = undo, ⌘⇧Z = redo.
+        if chars == "z", let textView = firstResponder as? NSTextView {
+            if flags == [.command] { textView.undoManager?.undo(); return true }
+            if flags == [.command, .shift] { textView.undoManager?.redo(); return true }
+        }
+
         if flags == [.command],
-           let chars = event.charactersIgnoringModifiers?.lowercased(),
+           let chars,
            chars.count == 1 {
             switch chars {
             case "c":

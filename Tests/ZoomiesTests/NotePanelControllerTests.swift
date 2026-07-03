@@ -26,6 +26,19 @@ final class NotePanelControllerTests: XCTestCase {
         XCTAssertEqual(effectiveColor, .white)
     }
 
+    func testScratchpadModeUsesNotePanelWithoutScreenshotOnlyActions() throws {
+        let controller = NotePanelController(initialText: "",
+                                             escapeKeyDeletesFile: false,
+                                             showsCopyAndDelete: false,
+                                             showsEditorShortcut: false)
+        let labels = findLabels(in: controller.window?.contentView).map(\.stringValue)
+
+        XCTAssertTrue(labels.contains { $0.contains("Esc: Close") })
+        XCTAssertTrue(labels.contains { $0.contains("Shift+Tab: Rename") })
+        XCTAssertFalse(labels.contains { $0.contains("Copy+Delete") })
+        XCTAssertFalse(labels.contains { $0.contains("Tab: Edit") })
+    }
+
     private func findTextView(in view: NSView?) -> NSTextView? {
         guard let view else { return nil }
         if let textView = view as? NSTextView {
@@ -39,5 +52,17 @@ final class NotePanelControllerTests: XCTestCase {
         }
 
         return nil
+    }
+
+    private func findLabels(in view: NSView?) -> [NSTextField] {
+        guard let view else { return [] }
+        var result: [NSTextField] = []
+        if let label = view as? NSTextField {
+            result.append(label)
+        }
+        for subview in view.subviews {
+            result.append(contentsOf: findLabels(in: subview))
+        }
+        return result
     }
 }
