@@ -111,13 +111,17 @@ final class NotePanelController: NSWindowController {
         shortcutLabel.font = NSFont.systemFont(ofSize: 11)
         shortcutLabel.textColor = NSColor.secondaryLabelColor
         shortcutLabel.lineBreakMode = .byWordWrapping
+        shortcutLabel.maximumNumberOfLines = 2
+        shortcutLabel.preferredMaxLayoutWidth = 370
+        shortcutLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        shortcutLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         let escapeLabel = escapeKeyDeletesFile ? "Delete" : "Close"
-        var shortcutParts = ["Keys:", "Enter: Save", "Cmd+Enter: Copy+Save"]
-        if showsCopyAndDelete { shortcutParts.append("Cmd+Backspace: Copy+Delete") }
-        shortcutParts.append("Esc: \(escapeLabel)")
-        shortcutParts.append("Shift+Tab: Rename")
-        if showsEditorShortcut { shortcutParts.append("Tab: Edit") }
-        shortcutLabel.stringValue = shortcutParts.joined(separator: "    ")
+        let copyAndDeleteText = showsCopyAndDelete ? "Cmd+Backspace: Copy+Delete    " : ""
+        let editText = showsEditorShortcut ? "    Tab: Edit" : ""
+        shortcutLabel.stringValue = [
+            "Keys: Enter: Save    Cmd+Enter: Copy+Save",
+            "\(copyAndDeleteText)Esc: \(escapeLabel)    Shift+Tab: Rename\(editText)"
+        ].joined(separator: "\n")
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 18),

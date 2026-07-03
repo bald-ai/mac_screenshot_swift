@@ -101,15 +101,19 @@ final class RenamePanelController: NSWindowController {
         }
 
         let escapeLabel = escapeKeyDeletesFile ? "Delete" : "Close"
-        var shortcutParts = ["Keys:", "Enter: Save", "Cmd+Enter: Copy+Save"]
-        if showsCopyAndDiscard { shortcutParts.append("Cmd+Backspace: Copy+Delete") }
-        shortcutParts.append("Esc: \(escapeLabel)")
-        shortcutParts.append("Tab: \(returnTargetLabel)")
-        let shortcutsText = shortcutParts.joined(separator: "    ")
-        shortcutLabel.stringValue = shortcutsText
+        let copyAndDiscardText = showsCopyAndDiscard ? "    Cmd+Backspace: Copy+Delete" : ""
+        shortcutLabel.stringValue = [
+            "Keys: Enter: Save    Cmd+Enter: Copy+Save",
+            "\(copyAndDiscardText.isEmpty ? "" : copyAndDiscardText)    Esc: \(escapeLabel)    Tab: \(returnTargetLabel)"
+                .trimmingCharacters(in: .whitespaces)
+        ].joined(separator: "\n")
         shortcutLabel.font = NSFont.systemFont(ofSize: 11)
         shortcutLabel.textColor = NSColor.secondaryLabelColor
         shortcutLabel.lineBreakMode = .byWordWrapping
+        shortcutLabel.maximumNumberOfLines = 2
+        shortcutLabel.preferredMaxLayoutWidth = 370
+        shortcutLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        shortcutLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         [titleLabel, textField, shortcutLabel].forEach { view in
             view.translatesAutoresizingMaskIntoConstraints = false

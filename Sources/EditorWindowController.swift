@@ -295,12 +295,19 @@ final class EditorWindowController: NSWindowController {
     }
 
     private func configureEditorShortcutLabel() {
-        editorShortcutLabel.stringValue = "Keys: W Pen    A Arrow    R Rectangle    E Ellipse    T Text    S Select    K/Q Colors    1-6 Pick color    Cmd+Z Undo    Option+Backspace Clear    Cmd+C/X/V Copy/Cut/Paste    Cmd +/-/0 Zoom    Shift+Tab Prompt    Enter Save    Cmd+Enter Copy+Save    Esc Cancel"
+        editorShortcutLabel.stringValue = [
+            "Tools: W Pen    A Arrow    R Rectangle    E Ellipse    T Text    S Select",
+            "Edit: K/Q Colors    1-6 Pick color    Cmd+Z Undo    Option+Backspace Clear    Cmd+C/X/V Copy/Cut/Paste",
+            "Flow: Cmd +/-/0 Zoom    Shift+Tab Prompt    Enter Save    Cmd+Enter Copy+Save    Esc Cancel"
+        ].joined(separator: "\n")
         editorShortcutLabel.font = NSFont.systemFont(ofSize: 11)
         editorShortcutLabel.textColor = NSColor.secondaryLabelColor
         editorShortcutLabel.alignment = .center
         editorShortcutLabel.lineBreakMode = .byWordWrapping
-        editorShortcutLabel.maximumNumberOfLines = 0
+        editorShortcutLabel.maximumNumberOfLines = 3
+        editorShortcutLabel.preferredMaxLayoutWidth = 556
+        editorShortcutLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        editorShortcutLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
         editorShortcutLabel.translatesAutoresizingMaskIntoConstraints = false
     }
 
