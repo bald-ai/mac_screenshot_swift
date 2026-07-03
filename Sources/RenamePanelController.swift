@@ -13,6 +13,7 @@ final class RenamePanelController: NSWindowController {
     var onAction: ((RenamePanelAction) -> Void)?
 
     private let textField = CommandAwareTextField()
+    private let shortcutLabel = NSTextField(labelWithString: "")
     private var escapeKeyDeletesFile: Bool = true
     private var showsCopyAndDiscard: Bool = true
 
@@ -22,7 +23,7 @@ final class RenamePanelController: NSWindowController {
     convenience init(initialFilename: String,
                      escapeKeyDeletesFile: Bool = true,
                      showsCopyAndDiscard: Bool = true) {
-        let contentRect = NSRect(x: 0, y: 0, width: 410, height: 96)
+        let contentRect = NSRect(x: 0, y: 0, width: 410, height: 215)
         let panel = FloatingInputPanel(contentRect: contentRect)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
@@ -54,7 +55,7 @@ final class RenamePanelController: NSWindowController {
         let container = MenuSurfaceMaterial.makeFillingView(frame: contentView.bounds)
         contentView.addSubview(container)
 
-        let titleLabel = NSTextField(labelWithString: "Rename")
+        let titleLabel = NSTextField(labelWithString: "Filename")
         titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
 
         textField.stringValue = WorkflowFilenameLogic.editableFilename(initialFilename)
@@ -96,7 +97,19 @@ final class RenamePanelController: NSWindowController {
             }
         }
 
-        [titleLabel, textField].forEach { view in
+        let escapeLabel = escapeKeyDeletesFile ? "Delete" : "Close"
+        var shortcutParts = ["Enter: Save", "⌘↩: Copy+Save"]
+        if showsCopyAndDiscard {
+            shortcutParts.append("⌘⌫: Copy+Delete")
+        }
+        shortcutParts.append("Esc: \(escapeLabel)")
+        shortcutParts.append("Tab: Note")
+        shortcutLabel.stringValue = shortcutParts.joined(separator: "    ")
+        shortcutLabel.font = NSFont.systemFont(ofSize: 11)
+        shortcutLabel.textColor = NSColor.secondaryLabelColor
+        shortcutLabel.lineBreakMode = .byWordWrapping
+
+        [titleLabel, textField, shortcutLabel].forEach { view in
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
@@ -108,7 +121,10 @@ final class RenamePanelController: NSWindowController {
             textField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
             textField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
             textField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-            textField.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -18)
+
+            shortcutLabel.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 12),
+            shortcutLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            shortcutLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20)
         ])
 
         window?.initialFirstResponder = textField

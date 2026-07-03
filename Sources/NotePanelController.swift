@@ -14,6 +14,7 @@ final class NotePanelController: NSWindowController {
     var onAction: ((NotePanelAction) -> Void)?
 
     private let textView = LockedWhiteNoteTextView(frame: .zero, textContainer: nil)
+    private let shortcutLabel = NSTextField(labelWithString: "")
     private var escapeKeyDeletesFile: Bool = true
     private var showsCopyAndDelete: Bool = true
     private var showsEditorShortcut: Bool = true
@@ -55,7 +56,7 @@ final class NotePanelController: NSWindowController {
         let container = MenuSurfaceMaterial.makeFillingView(frame: contentView.bounds)
         contentView.addSubview(container)
 
-        let titleLabel = NSTextField(labelWithString: "Prompt / Note")
+        let titleLabel = NSTextField(labelWithString: "Note")
         titleLabel.font = NSFont.systemFont(ofSize: 13, weight: .medium)
 
         textView.font = NSFont.systemFont(ofSize: 13)
@@ -102,10 +103,25 @@ final class NotePanelController: NSWindowController {
         scrollView.hasVerticalScroller = true
         scrollView.documentView = textView
 
-        [titleLabel, scrollView].forEach { view in
+        [titleLabel, scrollView, shortcutLabel].forEach { view in
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
+
+        shortcutLabel.font = NSFont.systemFont(ofSize: 11)
+        shortcutLabel.textColor = NSColor.secondaryLabelColor
+        shortcutLabel.lineBreakMode = .byWordWrapping
+        let escapeLabel = escapeKeyDeletesFile ? "Delete" : "Close"
+        var shortcutParts = ["Enter: Save", "⌘↩: Copy+Save"]
+        if showsCopyAndDelete {
+            shortcutParts.append("⌘⌫: Copy+Delete")
+        }
+        shortcutParts.append("Esc: \(escapeLabel)")
+        shortcutParts.append("Shift+Tab: Rename")
+        if showsEditorShortcut {
+            shortcutParts.append("Tab: Editor")
+        }
+        shortcutLabel.stringValue = shortcutParts.joined(separator: "    ")
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 18),
@@ -115,7 +131,11 @@ final class NotePanelController: NSWindowController {
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
             scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 60),
-            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -18)
+
+            shortcutLabel.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 8),
+            shortcutLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
+            shortcutLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
+            shortcutLabel.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -12)
         ])
 
         window?.initialFirstResponder = textView

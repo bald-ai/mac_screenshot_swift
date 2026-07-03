@@ -33,11 +33,11 @@ final class NotePanelControllerTests: XCTestCase {
                                              showsEditorShortcut: false)
         let labels = findLabels(in: controller.window?.contentView).map(\.stringValue)
 
-        XCTAssertTrue(labels.contains("Prompt / Note"))
-        XCTAssertFalse(labels.contains { $0.contains("Esc: Close") })
-        XCTAssertFalse(labels.contains { $0.contains("Shift+Tab: Rename") })
+        XCTAssertTrue(labels.contains("Note"))
+        XCTAssertTrue(labels.contains { $0.contains("Esc: Close") })
+        XCTAssertTrue(labels.contains { $0.contains("Shift+Tab: Rename") })
         XCTAssertFalse(labels.contains { $0.contains("Copy+Delete") })
-        XCTAssertFalse(labels.contains { $0.contains("Tab: Edit") })
+        XCTAssertFalse(labels.contains { $0.contains("Tab: Editor") })
     }
 
     private func findTextView(in view: NSView?) -> NSTextView? {
