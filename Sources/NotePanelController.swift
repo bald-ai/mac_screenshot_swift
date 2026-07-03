@@ -14,7 +14,6 @@ final class NotePanelController: NSWindowController {
     var onAction: ((NotePanelAction) -> Void)?
 
     private let textView = LockedWhiteNoteTextView(frame: .zero, textContainer: nil)
-    private let shortcutLabel = NSTextField(labelWithString: "")
     private var escapeKeyDeletesFile: Bool = true
     private var showsCopyAndDelete: Bool = true
     private var showsEditorShortcut: Bool = true
@@ -103,25 +102,10 @@ final class NotePanelController: NSWindowController {
         scrollView.hasVerticalScroller = true
         scrollView.documentView = textView
 
-        [titleLabel, scrollView, shortcutLabel].forEach { view in
+        [titleLabel, scrollView].forEach { view in
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
-
-        shortcutLabel.font = NSFont.systemFont(ofSize: 11)
-        shortcutLabel.textColor = NSColor.secondaryLabelColor
-        shortcutLabel.lineBreakMode = .byWordWrapping
-        shortcutLabel.maximumNumberOfLines = 2
-        shortcutLabel.preferredMaxLayoutWidth = 370
-        shortcutLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        shortcutLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let escapeLabel = escapeKeyDeletesFile ? "Delete" : "Close"
-        let copyAndDeleteText = showsCopyAndDelete ? "Cmd+Backspace: Copy+Delete    " : ""
-        let editText = showsEditorShortcut ? "    Tab: Edit" : ""
-        shortcutLabel.stringValue = [
-            "Keys: Enter: Save    Cmd+Enter: Copy+Save",
-            "\(copyAndDeleteText)Esc: \(escapeLabel)    Shift+Tab: Rename\(editText)"
-        ].joined(separator: "\n")
 
         NSLayoutConstraint.activate([
             titleLabel.topAnchor.constraint(equalTo: container.topAnchor, constant: 18),
@@ -131,11 +115,7 @@ final class NotePanelController: NSWindowController {
             scrollView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
             scrollView.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
             scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 60),
-
-            shortcutLabel.topAnchor.constraint(equalTo: scrollView.bottomAnchor, constant: 8),
-            shortcutLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            shortcutLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-            shortcutLabel.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -12)
+            scrollView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -18)
         ])
 
         window?.initialFirstResponder = textView

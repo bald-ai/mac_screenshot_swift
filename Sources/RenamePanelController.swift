@@ -13,9 +13,7 @@ final class RenamePanelController: NSWindowController {
     var onAction: ((RenamePanelAction) -> Void)?
 
     private let textField = CommandAwareTextField()
-    private let shortcutLabel = NSTextField(labelWithString: "")
     private var escapeKeyDeletesFile: Bool = true
-    private var returnTargetLabel: String = "Note"
     private var showsCopyAndDiscard: Bool = true
 
     private var originalBaseName: String = ""
@@ -23,16 +21,14 @@ final class RenamePanelController: NSWindowController {
 
     convenience init(initialFilename: String,
                      escapeKeyDeletesFile: Bool = true,
-                     returnTargetLabel: String = "Note",
                      showsCopyAndDiscard: Bool = true) {
-        let contentRect = NSRect(x: 0, y: 0, width: 410, height: 215)
+        let contentRect = NSRect(x: 0, y: 0, width: 410, height: 96)
         let panel = FloatingInputPanel(contentRect: contentRect)
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
 
         self.init(window: panel)
         self.escapeKeyDeletesFile = escapeKeyDeletesFile
-        self.returnTargetLabel = returnTargetLabel
         self.showsCopyAndDiscard = showsCopyAndDiscard
         configureFilenameMetadata(initialFilename: initialFilename)
         configureUI(initialFilename: initialFilename)
@@ -100,22 +96,7 @@ final class RenamePanelController: NSWindowController {
             }
         }
 
-        let escapeLabel = escapeKeyDeletesFile ? "Delete" : "Close"
-        let copyAndDiscardText = showsCopyAndDiscard ? "    Cmd+Backspace: Copy+Delete" : ""
-        shortcutLabel.stringValue = [
-            "Keys: Enter: Save    Cmd+Enter: Copy+Save",
-            "\(copyAndDiscardText.isEmpty ? "" : copyAndDiscardText)    Esc: \(escapeLabel)    Tab: \(returnTargetLabel)"
-                .trimmingCharacters(in: .whitespaces)
-        ].joined(separator: "\n")
-        shortcutLabel.font = NSFont.systemFont(ofSize: 11)
-        shortcutLabel.textColor = NSColor.secondaryLabelColor
-        shortcutLabel.lineBreakMode = .byWordWrapping
-        shortcutLabel.maximumNumberOfLines = 2
-        shortcutLabel.preferredMaxLayoutWidth = 370
-        shortcutLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        shortcutLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        [titleLabel, textField, shortcutLabel].forEach { view in
+        [titleLabel, textField].forEach { view in
             view.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(view)
         }
@@ -127,10 +108,7 @@ final class RenamePanelController: NSWindowController {
             textField.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
             textField.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
             textField.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20),
-
-            shortcutLabel.topAnchor.constraint(equalTo: textField.bottomAnchor, constant: 12),
-            shortcutLabel.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 20),
-            shortcutLabel.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -20)
+            textField.bottomAnchor.constraint(lessThanOrEqualTo: container.bottomAnchor, constant: -18)
         ])
 
         window?.initialFirstResponder = textField

@@ -57,7 +57,6 @@ final class ScratchpadService {
         let controller = RenamePanelController(
             initialFilename: currentBaseName + ".md",
             escapeKeyDeletesFile: false,
-            returnTargetLabel: "Note",
             showsCopyAndDiscard: false
         )
         controller.onAction = { [weak self] action in self?.handleRenameAction(action) }
