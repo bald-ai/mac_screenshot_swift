@@ -35,11 +35,8 @@ enum WorkflowNoteRenderer {
         let minWidth: CGFloat = 400
         let effectiveWidth = max(baseWidth, minWidth)
 
-        let scale = min(2.0, max(1.0, baseWidth / 1280.0))
-        let fontSizeBase = max(12, min(20, baseWidth * 0.02))
-        let paddingBase = max(8, min(16, baseWidth * 0.015))
-        let fontSize = fontSizeBase * scale
-        let padding = paddingBase * scale
+        let fontSize = max(12, baseWidth * 0.04)
+        let padding = max(8, baseWidth * 0.02)
         let lineHeight = fontSize * 1.4
 
         let font = NSFont.systemFont(ofSize: fontSize)

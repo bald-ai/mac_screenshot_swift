@@ -25,4 +25,12 @@ final class WorkflowNoteRendererTests: XCTestCase {
         XCTAssertEqual(rendered.size.width, 400, accuracy: 0.5)
         XCTAssertGreaterThan(rendered.size.height, 60)
     }
+
+    func testBurnUsesReadableNoteHeightForPhoneScreenshots() throws {
+        let image = TestSupport.solidImage(width: 1080, height: 2392, color: .systemBlue)
+
+        let rendered = try XCTUnwrap(WorkflowNoteRenderer.burn(note: "Prompt for AI: make this text readable", into: image))
+
+        XCTAssertGreaterThan(rendered.size.height - image.size.height, 90)
+    }
 }
