@@ -105,7 +105,7 @@ if [[ -f "${SCREENSHOT_SOUND}" ]]; then
   cp "${SCREENSHOT_SOUND}" "${APP_RESOURCES}/"
 fi
 
-ICON_SRC="${REPO_ROOT}/dist/Zoomies.icns"
+ICON_SRC="${REPO_ROOT}/Sources/Resources/AppIcon.icns"
 if [[ -f "${ICON_SRC}" ]]; then
   cp "${ICON_SRC}" "${APP_RESOURCES}/AppIcon.icns"
 fi

@@ -25,6 +25,8 @@ swift build
 swift run Zoomies
 ```
 
+**Known quirk: the first screenshot after opening the app can be a bit buggy; only the first one.**
+
 This repo is source-only. If you want a clickable `.app`, ask any coding agent to package the SwiftPM project into a macOS app bundle for you.
 
 ## Default Shortcuts
