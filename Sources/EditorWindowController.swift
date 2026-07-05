@@ -16,7 +16,7 @@ final class EditorWindowController: NSWindowController {
     /// - Parameters:
     ///   - image: The final composited image, or `nil` for delete-only.
     ///   - action: The requested final action.
-    var onComplete: ((NSImage?, FinalAction) -> Void)?
+    var onComplete: ((NSImage?, FinalAction, EditorCanvasState?) -> Void)?
     var onBackToNote: (() -> Void)?
 
     private let canvasView: EditorCanvasView
@@ -104,9 +104,10 @@ final class EditorWindowController: NSWindowController {
          settingsStore: SettingsStore,
          notePreview: String? = nil,
          targetScreen: NSScreen? = nil,
-         escapeKeyDeletesFile: Bool = true) {
+         escapeKeyDeletesFile: Bool = true,
+         initialState: EditorCanvasState? = nil) {
         let escapeFinal: EditorCanvasView.FinalActionCommand = escapeKeyDeletesFile ? .deleteOnly : .closeOnly
-        self.canvasView = EditorCanvasView(image: image, escapeFinalAction: escapeFinal)
+        self.canvasView = EditorCanvasView(image: image, escapeFinalAction: escapeFinal, initialState: initialState)
         self.settingsStore = settingsStore
         self.notePreviewRaw = notePreview
         self.targetScreen = targetScreen
@@ -155,6 +156,10 @@ final class EditorWindowController: NSWindowController {
 
     func currentCompositeImage() -> NSImage {
         canvasView.compositeImage()
+    }
+
+    func currentEditableState() -> EditorCanvasState? {
+        canvasView.editableState()
     }
 
     func dismissWithoutCompletion() {
@@ -843,8 +848,9 @@ final class EditorWindowController: NSWindowController {
         }
 
         let image = canvasView.compositeImage()
+        let state = canvasView.editableState()
         didSendCompletion = true
-        completion(image, action)
+        completion(image, action, state)
         close()
     }
 }
@@ -854,8 +860,9 @@ extension EditorWindowController: NSWindowDelegate {
         guard !didSendCompletion else { return }
         guard let completion = onComplete else { return }
         let image = canvasView.compositeImage()
+        let state = canvasView.editableState()
         didSendCompletion = true
-        completion(image, .saveOnly)
+        completion(image, .saveOnly, state)
     }
 
     func windowDidResize(_ notification: Notification) {

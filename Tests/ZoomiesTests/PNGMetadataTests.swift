@@ -20,6 +20,47 @@ final class PNGMetadataTests: XCTestCase {
         XCTAssertEqual(extracted.prompt, prompt, "Prompt text (incl. unicode) must round-trip exactly.")
     }
 
+    func testEmbedThenExtractRoundTripsEditorState() throws {
+        let output = try TestSupport.solidImagePNGData(width: 60, height: 30, color: .systemRed)
+        let base = try TestSupport.solidImagePNGData(width: 40, height: 20, color: .systemBlue)
+        let state = EditorCanvasState(
+            baseImagePNG: base,
+            items: [
+                .arrow(start: .init(NSPoint(x: 3, y: 4)),
+                       end: .init(NSPoint(x: 30, y: 12)),
+                       color: .init(.systemRed),
+                       lineWidth: 4),
+                .text(.init(text: "Editable",
+                            origin: .init(NSPoint(x: 6, y: 7)),
+                            color: .init(.systemBlue),
+                            fontSize: 24))
+            ]
+        )
+
+        let embedded = try XCTUnwrap(PNGMetadata.embed(intoPNG: output, editorState: state))
+        let extracted = try XCTUnwrap(PNGMetadata.extractEditorState(fromPNG: embedded))
+
+        XCTAssertEqual(extracted.baseImagePNG, base)
+        XCTAssertEqual(extracted.items, state.items)
+    }
+
+    func testEmbedOriginalPromptCanAlsoCarryEditorState() throws {
+        let burned = try TestSupport.solidImagePNGData(width: 60, height: 30, color: .systemRed)
+        let original = try TestSupport.solidImagePNGData(width: 40, height: 20, color: .systemBlue)
+        let state = EditorCanvasState(baseImagePNG: original,
+                                      items: [.erase(rect: .init(NSRect(x: 1, y: 2, width: 3, height: 4)))])
+
+        let embedded = try XCTUnwrap(
+            PNGMetadata.embed(intoPNG: burned, originalPNG: original, prompt: "note", editorState: state)
+        )
+
+        let note = try XCTUnwrap(PNGMetadata.extract(fromPNG: embedded))
+        let extractedState = try XCTUnwrap(PNGMetadata.extractEditorState(fromPNG: embedded))
+        XCTAssertEqual(note.originalPNG, original)
+        XCTAssertEqual(note.prompt, "note")
+        XCTAssertEqual(extractedState.items, state.items)
+    }
+
     func testExtractReturnsNilWhenChunksMissing() throws {
         let plain = try TestSupport.solidImagePNGData(width: 20, height: 20)
         XCTAssertNil(PNGMetadata.extract(fromPNG: plain))

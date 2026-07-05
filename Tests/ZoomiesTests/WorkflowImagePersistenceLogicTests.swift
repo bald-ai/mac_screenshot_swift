@@ -41,6 +41,60 @@ final class WorkflowImagePersistenceLogicTests: XCTestCase {
         XCTAssertEqual(extracted.originalPNG, original)
     }
 
+    func testEncodedImageDataEmbedsEditorStateWithoutPrompt() throws {
+        let image = TestSupport.solidImage(width: 60, height: 30, color: .systemRed)
+        let base = try TestSupport.solidImagePNGData(width: 40, height: 20, color: .systemBlue)
+        let state = EditorCanvasState(
+            baseImagePNG: base,
+            items: [.arrow(start: .init(NSPoint(x: 1, y: 2)),
+                           end: .init(NSPoint(x: 20, y: 10)),
+                           color: .init(.systemRed),
+                           lineWidth: 4)]
+        )
+
+        let encoded = try XCTUnwrap(
+            WorkflowImagePersistenceLogic.encodedImageData(
+                from: image,
+                originalURL: URL(fileURLWithPath: "/tmp/example.png"),
+                editorState: state,
+                uniqueURL: { name, directory in directory.appendingPathComponent(name) }
+            )
+        )
+
+        let extracted = try XCTUnwrap(PNGMetadata.extractEditorState(fromPNG: encoded.data))
+        XCTAssertEqual(extracted.baseImagePNG, base)
+        XCTAssertEqual(extracted.items, state.items)
+    }
+
+    func testEncodedImageDataEmbedsPromptAndEditorStateTogether() throws {
+        let image = TestSupport.solidImage(width: 60, height: 30, color: .systemRed)
+        let original = try TestSupport.solidImagePNGData(width: 40, height: 20, color: .systemBlue)
+        let state = EditorCanvasState(
+            baseImagePNG: original,
+            items: [.text(.init(text: "label",
+                                origin: .init(NSPoint(x: 8, y: 9)),
+                                color: .init(.systemBlue),
+                                fontSize: 18))]
+        )
+
+        let encoded = try XCTUnwrap(
+            WorkflowImagePersistenceLogic.encodedImageData(
+                from: image,
+                originalURL: URL(fileURLWithPath: "/tmp/example.png"),
+                cleanOriginalPNG: original,
+                prompt: "embed me",
+                editorState: state,
+                uniqueURL: { name, directory in directory.appendingPathComponent(name) }
+            )
+        )
+
+        let note = try XCTUnwrap(PNGMetadata.extract(fromPNG: encoded.data))
+        let extractedState = try XCTUnwrap(PNGMetadata.extractEditorState(fromPNG: encoded.data))
+        XCTAssertEqual(note.prompt, "embed me")
+        XCTAssertEqual(note.originalPNG, original)
+        XCTAssertEqual(extractedState.items, state.items)
+    }
+
     func testEncodedImageDataSkipsEmbeddingWhenPromptEmpty() throws {
         let image = TestSupport.solidImage(width: 60, height: 30)
         let original = try TestSupport.solidImagePNGData(width: 40, height: 20)

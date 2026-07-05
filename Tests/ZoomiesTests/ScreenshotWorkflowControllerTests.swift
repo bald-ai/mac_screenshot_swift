@@ -241,6 +241,42 @@ final class ScreenshotWorkflowControllerTests: XCTestCase {
         XCTAssertEqual(baseline.size.height, 60, accuracy: 1.0)
     }
 
+    func testEditorCompletionEmbedsEditableStateForFutureReopen() throws {
+        let root = try TestSupport.makeTemporaryDirectory()
+        defer { TestSupport.removeIfExists(root) }
+
+        let fileURL = root.appendingPathComponent("foreign.png")
+        let clipboardDirectory = root.appendingPathComponent("clipboard", isDirectory: true)
+        let workflow = try makeWorkflow(root: root, fileURL: fileURL, clipboardDirectory: clipboardDirectory)
+
+        let base = try Data(contentsOf: fileURL)
+        let state = EditorCanvasState(
+            baseImagePNG: base,
+            items: [
+                .arrow(start: .init(NSPoint(x: 5, y: 6)),
+                       end: .init(NSPoint(x: 35, y: 18)),
+                       color: .init(.systemRed),
+                       lineWidth: 4),
+                .text(.init(text: "delete me later",
+                            origin: .init(NSPoint(x: 10, y: 12)),
+                            color: .init(.systemBlue),
+                            fontSize: 22))
+            ]
+        )
+
+        let finished = expectation(description: "workflow finished")
+        workflow.onFinish = { finished.fulfill() }
+
+        let editedImage = TestSupport.solidImage(width: 80, height: 40, color: .systemGreen)
+        workflow.handleEditorCompletion(editedImage: editedImage, action: .saveOnly, editorState: state)
+        wait(for: [finished], timeout: 2.0)
+
+        let savedData = try Data(contentsOf: fileURL)
+        let extracted = try XCTUnwrap(PNGMetadata.extractEditorState(fromPNG: savedData))
+        XCTAssertEqual(extracted.baseImagePNG, base)
+        XCTAssertEqual(extracted.items, state.items)
+    }
+
     func testReopenedNonPNGSaveConvertsToPNGWithoutCrashing() throws {
         // PNG-only: reopening a foreign JPEG and saving rewrites it as .png and
         // removes the original. (A plain reopened JPEG has no embedded baseline,

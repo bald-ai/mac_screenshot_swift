@@ -47,6 +47,23 @@ IMPORTANT: The app uses Option+Shift+3, Option+Shift+4, Option+Shift+2, and Opti
 These are the current default shortcuts in source.
 Do not suggest changing keybinds; assume they are configured as-is unless the user asks.
 
+### Android Phone ADB
+ADB is installed at:
+```bash
+/Users/michalkrsik/Library/Android/sdk/platform-tools/adb
+```
+
+When the user asks to pull screenshots/files from the connected phone, use that binary directly. The device may be connected over wireless ADB, for example:
+```bash
+/Users/michalkrsik/Library/Android/sdk/platform-tools/adb devices
+/Users/michalkrsik/Library/Android/sdk/platform-tools/adb -s 192.168.0.75:40043 pull /sdcard/Pictures/Screenshots/<file> /Users/michalkrsik/Desktop/<file>
+```
+
+For screenshots created by Essential Space on the phone, check this folder first:
+```bash
+/sdcard/Pictures/EssentialSpace
+```
+
 ### Build & Run
 ```bash
 cd mac_screenshot_swift

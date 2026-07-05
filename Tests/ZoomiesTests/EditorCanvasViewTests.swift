@@ -43,6 +43,19 @@ final class EditorCanvasViewTests: XCTestCase {
         try XCTUnwrap(image.representations.compactMap { $0 as? NSBitmapImageRep }.first)
     }
 
+    private func keyEvent(keyCode: UInt16) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown,
+                                       location: .zero,
+                                       modifierFlags: [],
+                                       timestamp: 0,
+                                       windowNumber: 0,
+                                       context: nil,
+                                       characters: "",
+                                       charactersIgnoringModifiers: "",
+                                       isARepeat: false,
+                                       keyCode: keyCode))
+    }
+
     // Core of the fix: passing through the editor must not change pixel dimensions
     // (it used to double them on Retina via NSImage.lockFocus).
     func testCompositeImagePreservesNativeResolution() throws {
@@ -68,5 +81,26 @@ final class EditorCanvasViewTests: XCTestCase {
             XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.1, "\(probe.name) green")
             XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.1, "\(probe.name) blue")
         }
+    }
+
+    func testSelectionToolDeletesExistingArrowObject() throws {
+        let (image, _) = quadrantImage(width: 100, height: 80)
+        let basePNG = try TestSupport.solidImagePNGData(width: 100, height: 80)
+        let state = EditorCanvasState(
+            baseImagePNG: basePNG,
+            items: [
+                .arrow(start: .init(NSPoint(x: 30, y: 30)),
+                       end: .init(NSPoint(x: 70, y: 30)),
+                       color: .init(.systemRed),
+                       lineWidth: 4)
+            ]
+        )
+        let canvas = EditorCanvasView(image: image, initialState: state)
+        canvas.setTool(.selection)
+
+        XCTAssertTrue(canvas.selectEditableItem(at: NSPoint(x: 50, y: 30)))
+        canvas.keyDown(with: try keyEvent(keyCode: 51))
+
+        XCTAssertEqual(canvas.editableState()?.items.count, 0)
     }
 }

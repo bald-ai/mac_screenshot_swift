@@ -14,21 +14,42 @@ enum PNGMetadata {
     static let originalPNGKeyword = "Zoomies-OriginalPNG-v1"
     /// Keyword for the UTF-8 prompt text.
     static let promptKeyword = "Zoomies-Prompt-v1"
+    /// Keyword for the JSON-encoded editable canvas state.
+    static let editorStateKeyword = "Zoomies-EditorState-v1"
 
     private static let signature: [UInt8] = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
 
     /// Inserts the original PNG bytes and prompt as `iTXt` chunks just before
     /// `IEND`. Returns nil if either input is not a PNG, or the input PNG is
     /// malformed.
-    static func embed(intoPNG pngData: Data, originalPNG: Data, prompt: String) -> Data? {
+    static func embed(intoPNG pngData: Data,
+                      originalPNG: Data,
+                      prompt: String,
+                      editorState: EditorCanvasState? = nil) -> Data? {
         let bytes = [UInt8](pngData)
         guard hasPNGSignature(bytes), isPNG(originalPNG) else { return nil }
         guard let iendStart = indexOfChunk(named: "IEND", in: bytes) else { return nil }
 
         var result = Data()
-        result.append(contentsOf: bytes[0..<iendStart])
+        result.append(stripZoomiesChunks(from: bytes[0..<iendStart]))
         result.append(makeITXtChunk(keyword: originalPNGKeyword, text: originalPNG.base64EncodedString()))
         result.append(makeITXtChunk(keyword: promptKeyword, text: prompt))
+        if let editorStateText = encodeEditorState(editorState) {
+            result.append(makeITXtChunk(keyword: editorStateKeyword, text: editorStateText))
+        }
+        result.append(contentsOf: bytes[iendStart...])
+        return result
+    }
+
+    static func embed(intoPNG pngData: Data, editorState: EditorCanvasState) -> Data? {
+        let bytes = [UInt8](pngData)
+        guard hasPNGSignature(bytes) else { return nil }
+        guard let iendStart = indexOfChunk(named: "IEND", in: bytes),
+              let editorStateText = encodeEditorState(editorState) else { return nil }
+
+        var result = Data()
+        result.append(stripZoomiesChunks(from: bytes[0..<iendStart]))
+        result.append(makeITXtChunk(keyword: editorStateKeyword, text: editorStateText))
         result.append(contentsOf: bytes[iendStart...])
         return result
     }
@@ -65,6 +86,32 @@ enum PNGMetadata {
         return (original, prompt)
     }
 
+    static func extractEditorState(fromPNG pngData: Data) -> EditorCanvasState? {
+        let bytes = [UInt8](pngData)
+        guard hasPNGSignature(bytes) else { return nil }
+
+        var editorState: EditorCanvasState?
+        var index = 8
+        while index + 8 <= bytes.count {
+            guard let length = readUInt32(bytes, at: index) else { break }
+            let typeStart = index + 4
+            let dataStart = typeStart + 4
+            let len = Int(length)
+            guard dataStart + len + 4 <= bytes.count else { break }
+
+            let type = String(bytes: bytes[typeStart..<dataStart], encoding: .ascii) ?? ""
+            if type == "iTXt",
+               let (keyword, text) = parseITXt(Array(bytes[dataStart..<dataStart + len])),
+               keyword == editorStateKeyword {
+                editorState = decodeEditorState(text)
+            }
+            if type == "IEND" { break }
+            index = dataStart + len + 4
+        }
+
+        return editorState
+    }
+
     /// True when the data starts with the 8-byte PNG signature.
     static func isPNG(_ data: Data) -> Bool {
         hasPNGSignature([UInt8](data.prefix(8)))
@@ -82,6 +129,17 @@ enum PNGMetadata {
         payload.append(0x00) // empty translated keyword, terminated
         payload.append(contentsOf: Array(text.utf8))
         return assembleChunk(type: "iTXt", payload: payload)
+    }
+
+    private static func encodeEditorState(_ editorState: EditorCanvasState?) -> String? {
+        guard let editorState,
+              let data = try? JSONEncoder().encode(editorState) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func decodeEditorState(_ text: String) -> EditorCanvasState? {
+        guard let data = text.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(EditorCanvasState.self, from: data)
     }
 
     private static func assembleChunk(type: String, payload: Data) -> Data {
@@ -134,6 +192,39 @@ enum PNGMetadata {
             index = dataStart + len + 4
         }
         return nil
+    }
+
+    private static func stripZoomiesChunks(from bytes: ArraySlice<UInt8>) -> Data {
+        guard bytes.count >= 8 else { return Data(bytes) }
+
+        var result = Data()
+        result.append(contentsOf: bytes.prefix(8))
+
+        var index = bytes.startIndex + 8
+        while index + 8 <= bytes.endIndex {
+            guard let length = readUInt32(Array(bytes), at: index - bytes.startIndex) else { break }
+            let typeStart = index + 4
+            let dataStart = typeStart + 4
+            let len = Int(length)
+            let chunkEnd = dataStart + len + 4
+            guard chunkEnd <= bytes.endIndex else { break }
+
+            let type = String(bytes: bytes[typeStart..<dataStart], encoding: .ascii) ?? ""
+            var shouldSkip = false
+            if type == "iTXt",
+               let (keyword, _) = parseITXt(Array(bytes[dataStart..<dataStart + len])) {
+                shouldSkip = keyword == originalPNGKeyword
+                    || keyword == promptKeyword
+                    || keyword == editorStateKeyword
+            }
+
+            if !shouldSkip {
+                result.append(contentsOf: bytes[index..<chunkEnd])
+            }
+            index = chunkEnd
+        }
+
+        return result
     }
 
     // MARK: - Bytes & CRC

@@ -17,6 +17,7 @@ enum WorkflowImagePersistenceLogic {
                                  originalURL: URL,
                                  cleanOriginalPNG: Data? = nil,
                                  prompt: String? = nil,
+                                 editorState: EditorCanvasState? = nil,
                                  uniqueURL: UniqueURLResolver) -> WorkflowEncodedImageResult? {
         // PNG-only: every image is encoded as PNG regardless of the original
         // file's extension.
@@ -25,10 +26,18 @@ enum WorkflowImagePersistenceLogic {
         guard let bitmap = ScreenshotServiceCoreLogic.bitmapRepresentation(from: image) else { return nil }
         guard var data = bitmap.representation(using: .png, properties: [:]) else { return nil }
 
-        // Round-trip metadata: embed the clean original + prompt when present.
+        // Round-trip metadata: embed the clean original + prompt and/or editable
+        // canvas state when present.
         if let prompt, !prompt.isEmpty,
            let cleanOriginalPNG, cleanOriginalPNG.count < maxEmbeddedOriginalBytes,
-           let embedded = PNGMetadata.embed(intoPNG: data, originalPNG: cleanOriginalPNG, prompt: prompt) {
+           let embedded = PNGMetadata.embed(intoPNG: data,
+                                            originalPNG: cleanOriginalPNG,
+                                            prompt: prompt,
+                                            editorState: editorState) {
+            data = embedded
+        } else if let editorState,
+                  editorState.baseImagePNG.count < maxEmbeddedOriginalBytes,
+                  let embedded = PNGMetadata.embed(intoPNG: data, editorState: editorState) {
             data = embedded
         }
 

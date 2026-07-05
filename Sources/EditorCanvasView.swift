@@ -67,7 +67,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     // MARK: - Internal model
 
-    private enum Item {
+    fileprivate enum Item {
         case pen(points: [NSPoint], color: NSColor, lineWidth: CGFloat)
         case arrow(start: NSPoint, end: NSPoint, color: NSColor, lineWidth: CGFloat)
         case rect(rect: NSRect, color: NSColor, lineWidth: CGFloat)
@@ -77,7 +77,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         case erase(rect: NSRect)
     }
 
-    private struct TextItem {
+    fileprivate struct TextItem {
         var text: String
         var origin: NSPoint // top-left in view coordinates
         var color: NSColor
@@ -122,6 +122,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     // In-canvas pasted-image state for quick repositioning workflow.
     private var selectedImageIndex: Int?
+    private var selectedItemIndex: Int?
+    private var draggingItemIndex: Int?
+    private var lastItemDragPoint: NSPoint?
+    private var didPushUndoForItemDrag = false
     private var draggingImageIndex: Int?
     private var imageDragOffset: NSPoint = .zero
     private var didPushUndoForImageDrag = false
@@ -133,7 +137,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
     // MARK: - Init
 
-    init(image: NSImage, escapeFinalAction: FinalActionCommand = .deleteOnly) {
+    init(image: NSImage, escapeFinalAction: FinalActionCommand = .deleteOnly, initialState: EditorCanvasState? = nil) {
         self.baseImage = image
         self.escapeFinalAction = escapeFinalAction
         self.baseImageOrigin = NSPoint(x: canvasEdgeInset, y: canvasEdgeInset)
@@ -141,6 +145,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                                height: image.size.height + canvasEdgeInset * 2)
         let frame = NSRect(origin: .zero, size: frameSize)
         super.init(frame: frame)
+        if let initialState {
+            self.items = initialState.items.compactMap(Item.init(stateItem:))
+            updateCanvasSizeIfNeeded()
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -181,6 +189,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             selectionDragStart = nil
             selectionDragCurrent = nil
             selectedImageIndex = nil
+            selectedItemIndex = nil
+            draggingItemIndex = nil
+            lastItemDragPoint = nil
+            didPushUndoForItemDrag = false
             draggingImageIndex = nil
             didPushUndoForImageDrag = false
         }
@@ -216,6 +228,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         updateCanvasSizeIfNeeded()
         selectedTextIndex = nil
         selectedImageIndex = nil
+        selectedItemIndex = nil
+        draggingItemIndex = nil
+        lastItemDragPoint = nil
+        didPushUndoForItemDrag = false
         draggingImageIndex = nil
         didPushUndoForImageDrag = false
         clearSelectionState()
@@ -231,6 +247,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         items.removeAll()
         selectedTextIndex = nil
         selectedImageIndex = nil
+        selectedItemIndex = nil
+        draggingItemIndex = nil
+        lastItemDragPoint = nil
+        didPushUndoForItemDrag = false
         draggingImageIndex = nil
         didPushUndoForImageDrag = false
         clearSelectionState()
@@ -241,7 +261,28 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     }
 
     func compositeImage() -> NSImage {
-        renderCompositeImage(croppingTo: exportBounds())
+        endTextEditingIfNeeded()
+        return renderCompositeImage(croppingTo: exportBounds())
+    }
+
+    func editableState() -> EditorCanvasState? {
+        endTextEditingIfNeeded()
+        guard let basePNG = ScreenshotServiceCoreLogic.pngData(from: baseImage) else { return nil }
+        return EditorCanvasState(baseImagePNG: basePNG, items: items.compactMap { $0.stateItem })
+    }
+
+    @discardableResult
+    func selectEditableItem(at point: NSPoint) -> Bool {
+        guard let index = hitTestEditableItem(at: point) else { return false }
+        selectedImageIndex = nil
+        draggingImageIndex = nil
+        selectedItemIndex = index
+        selectionRect = nil
+        selectionDragStart = nil
+        selectionDragCurrent = nil
+        isCutSelectionPreview = false
+        needsDisplay = true
+        return true
     }
 
     /// Renders the currently selected region from the composited image.
@@ -331,6 +372,13 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
            case let .image(_, rect) = items[selectedImageIndex],
            rect.intersects(dirtyRect) {
             drawImageSelectionOutline(rect)
+        }
+
+        if let selectedItemIndex,
+           selectedItemIndex < items.count,
+           let rect = boundsForItem(items[selectedItemIndex])?.insetBy(dx: -3, dy: -3),
+           rect.intersects(dirtyRect) {
+            drawItemSelectionOutline(rect)
         }
 
         if let index = selectedTextIndex, textEditor == nil {
@@ -435,6 +483,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
     }
 
     private func drawImageSelectionOutline(_ rect: NSRect) {
+        drawItemSelectionOutline(rect)
+    }
+
+    private func drawItemSelectionOutline(_ rect: NSRect) {
         let outlineRect = rect.insetBy(dx: -2, dy: -2)
         guard outlineRect.width >= 1, outlineRect.height >= 1 else { return }
         let path = NSBezierPath(rect: outlineRect)
@@ -647,6 +699,37 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
         if let editor = textEditor {
             editor.frame = shiftedRect(editor.frame, byX: dx, byY: dy)
+        }
+    }
+
+    private func moveItem(at index: Int, byX dx: CGFloat, byY dy: CGFloat) {
+        guard index < items.count, dx != 0 || dy != 0 else { return }
+
+        switch items[index] {
+        case .pen(let points, let color, let lineWidth):
+            items[index] = .pen(points: points.map { shiftedPoint($0, byX: dx, byY: dy) },
+                                color: color,
+                                lineWidth: lineWidth)
+        case .arrow(let start, let end, let color, let lineWidth):
+            items[index] = .arrow(start: shiftedPoint(start, byX: dx, byY: dy),
+                                  end: shiftedPoint(end, byX: dx, byY: dy),
+                                  color: color,
+                                  lineWidth: lineWidth)
+        case .rect(let rect, let color, let lineWidth):
+            items[index] = .rect(rect: shiftedRect(rect, byX: dx, byY: dy),
+                                 color: color,
+                                 lineWidth: lineWidth)
+        case .ellipse(let rect, let color, let lineWidth):
+            items[index] = .ellipse(rect: shiftedRect(rect, byX: dx, byY: dy),
+                                    color: color,
+                                    lineWidth: lineWidth)
+        case .text(var textItem):
+            textItem.origin = shiftedPoint(textItem.origin, byX: dx, byY: dy)
+            items[index] = .text(textItem)
+        case .image(let image, let rect):
+            items[index] = .image(image: image, rect: shiftedRect(rect, byX: dx, byY: dy))
+        case .erase(let rect):
+            items[index] = .erase(rect: shiftedRect(rect, byX: dx, byY: dy))
         }
     }
 
@@ -864,6 +947,19 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         return sqrt(dx * dx + dy * dy)
     }
 
+    private func distance(from point: NSPoint, toSegmentStart start: NSPoint, end: NSPoint) -> CGFloat {
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let lengthSquared = dx * dx + dy * dy
+        guard lengthSquared > 0 else { return distance(from: point, to: start) }
+
+        let progress = ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared
+        let clampedProgress = max(0, min(1, progress))
+        let projection = NSPoint(x: start.x + clampedProgress * dx,
+                                 y: start.y + clampedProgress * dy)
+        return distance(from: point, to: projection)
+    }
+
     private func pushUndoSnapshot() {
         if undoStack.count >= maxUndoLevels {
             undoStack.removeFirst()
@@ -901,6 +997,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             endTextEditingIfNeeded()
             if let (index, rect) = hitTestImage(at: point) {
                 selectedImageIndex = index
+                selectedItemIndex = nil
+                draggingItemIndex = nil
+                lastItemDragPoint = nil
+                didPushUndoForItemDrag = false
                 draggingImageIndex = index
                 imageDragOffset = NSPoint(x: point.x - rect.origin.x, y: point.y - rect.origin.y)
                 didPushUndoForImageDrag = false
@@ -913,6 +1013,16 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             }
             selectedImageIndex = nil
             draggingImageIndex = nil
+            if selectEditableItem(at: point) {
+                draggingItemIndex = selectedItemIndex
+                lastItemDragPoint = point
+                didPushUndoForItemDrag = false
+                return
+            }
+            selectedItemIndex = nil
+            draggingItemIndex = nil
+            lastItemDragPoint = nil
+            didPushUndoForItemDrag = false
             selectionRect = nil
             selectionDragStart = point
             selectionDragCurrent = point
@@ -926,6 +1036,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
             if let (index, rect) = hitTestText(at: point) {
                 selectedTextIndex = index
+                selectedItemIndex = nil
+                draggingItemIndex = nil
+                lastItemDragPoint = nil
+                didPushUndoForItemDrag = false
                 if clickCount >= 2 {
                     endTextEditingIfNeeded()
                     beginEditingText(at: index, pushUndoOnEnd: true, isNewItem: false)
@@ -939,6 +1053,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                 return
             } else {
                 selectedTextIndex = nil
+                selectedItemIndex = nil
+                draggingItemIndex = nil
+                lastItemDragPoint = nil
+                didPushUndoForItemDrag = false
                 endTextEditingIfNeeded()
 
                 let item = TextItem(text: "", origin: point, color: currentColor, fontSize: defaultTextFontSize)
@@ -954,6 +1072,10 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         }
 
         selectedTextIndex = nil
+        selectedItemIndex = nil
+        draggingItemIndex = nil
+        lastItemDragPoint = nil
+        didPushUndoForItemDrag = false
         endTextEditingIfNeeded()
 
         dragStartPoint = point
@@ -983,6 +1105,16 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
                     items[index] = .image(image: image, rect: newRect)
                     needsDisplay = true
                 }
+                return
+            }
+            if let index = draggingItemIndex, index < items.count, let lastPoint = lastItemDragPoint {
+                if !didPushUndoForItemDrag {
+                    pushUndoSnapshot()
+                    didPushUndoForItemDrag = true
+                }
+                moveItem(at: index, byX: point.x - lastPoint.x, byY: point.y - lastPoint.y)
+                lastItemDragPoint = point
+                needsDisplay = true
                 return
             }
             guard selectionDragStart != nil else { return }
@@ -1026,7 +1158,16 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         if currentTool == .selection {
             if draggingImageIndex != nil {
                 draggingImageIndex = nil
+                selectedItemIndex = nil
                 didPushUndoForImageDrag = false
+                updateCanvasSizeIfNeeded()
+                needsDisplay = true
+                return
+            }
+            if draggingItemIndex != nil {
+                draggingItemIndex = nil
+                lastItemDragPoint = nil
+                didPushUndoForItemDrag = false
                 updateCanvasSizeIfNeeded()
                 needsDisplay = true
                 return
@@ -1119,6 +1260,100 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
             }
         }
         return nil
+    }
+
+    private func hitTestEditableItem(at point: NSPoint) -> Int? {
+        for index in items.indices.reversed() {
+            guard !isImageItem(items[index]),
+                  hitTest(item: items[index], at: point) else {
+                continue
+            }
+            return index
+        }
+        return nil
+    }
+
+    private func hitTest(item: Item, at point: NSPoint) -> Bool {
+        switch item {
+        case .pen(let points, _, let lineWidth):
+            return hitTestPolyline(points, at: point, tolerance: selectionTolerance(for: lineWidth))
+        case .arrow(let start, let end, _, let lineWidth):
+            return hitTestArrow(start: start, end: end, at: point, tolerance: selectionTolerance(for: lineWidth))
+        case .rect(let rect, _, let lineWidth):
+            return hitTestRectStroke(rect, at: point, tolerance: selectionTolerance(for: lineWidth))
+        case .ellipse(let rect, _, let lineWidth):
+            return hitTestEllipseStroke(rect, at: point, tolerance: selectionTolerance(for: lineWidth))
+        case .text(let textItem):
+            return textBounds(for: textItem).insetBy(dx: -4, dy: -4).contains(point)
+        case .image(_, let rect):
+            return rect.insetBy(dx: -3, dy: -3).contains(point)
+        case .erase(let rect):
+            return rect.insetBy(dx: -3, dy: -3).contains(point)
+        }
+    }
+
+    private func selectionTolerance(for lineWidth: CGFloat) -> CGFloat {
+        max(8, lineWidth + 4)
+    }
+
+    private func hitTestPolyline(_ points: [NSPoint], at point: NSPoint, tolerance: CGFloat) -> Bool {
+        guard points.count > 1 else { return false }
+        for index in 1..<points.count {
+            if distance(from: point, toSegmentStart: points[index - 1], end: points[index]) <= tolerance {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func hitTestArrow(start: NSPoint, end: NSPoint, at point: NSPoint, tolerance: CGFloat) -> Bool {
+        guard distance(from: start, to: end) >= 2 else { return false }
+        if distance(from: point, toSegmentStart: start, end: end) <= tolerance {
+            return true
+        }
+
+        let dx = end.x - start.x
+        let dy = end.y - start.y
+        let angle = atan2(dy, dx)
+        let point1 = NSPoint(x: end.x - arrowHeadLength * cos(angle - arrowHeadAngle),
+                             y: end.y - arrowHeadLength * sin(angle - arrowHeadAngle))
+        let point2 = NSPoint(x: end.x - arrowHeadLength * cos(angle + arrowHeadAngle),
+                             y: end.y - arrowHeadLength * sin(angle + arrowHeadAngle))
+        return distance(from: point, toSegmentStart: end, end: point1) <= tolerance
+            || distance(from: point, toSegmentStart: end, end: point2) <= tolerance
+    }
+
+    private func hitTestRectStroke(_ rect: NSRect, at point: NSPoint, tolerance: CGFloat) -> Bool {
+        guard rect.width > 0, rect.height > 0 else { return false }
+        let outer = rect.insetBy(dx: -tolerance, dy: -tolerance)
+        guard outer.contains(point) else { return false }
+        let inner = rect.insetBy(dx: tolerance, dy: tolerance)
+        guard inner.width > 0, inner.height > 0 else { return true }
+        return !inner.contains(point)
+    }
+
+    private func hitTestEllipseStroke(_ rect: NSRect, at point: NSPoint, tolerance: CGFloat) -> Bool {
+        guard rect.width > 0, rect.height > 0 else { return false }
+        let center = NSPoint(x: rect.midX, y: rect.midY)
+        let radiusX = rect.width / 2
+        let radiusY = rect.height / 2
+        guard radiusX > 0, radiusY > 0 else { return false }
+
+        let normalizedX = (point.x - center.x) / radiusX
+        let normalizedY = (point.y - center.y) / radiusY
+        let value = normalizedX * normalizedX + normalizedY * normalizedY
+        let maxRadius = max(radiusX, radiusY)
+        let band = max(0.08, tolerance / maxRadius)
+        let inner = max(0, 1 - band)
+        let outer = 1 + band
+        return value >= inner * inner && value <= outer * outer
+    }
+
+    private func isImageItem(_ item: Item) -> Bool {
+        if case .image = item {
+            return true
+        }
+        return false
     }
 
     private func beginEditingText(at index: Int, pushUndoOnEnd: Bool, isNewItem: Bool) {
@@ -1286,6 +1521,16 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         return true
     }
 
+    private func deleteSelectedItemIfNeeded() -> Bool {
+        guard let index = selectedItemIndex, index < items.count else { return false }
+        pushUndoSnapshot()
+        items.remove(at: index)
+        selectedItemIndex = nil
+        updateCanvasSizeIfNeeded()
+        needsDisplay = true
+        return true
+    }
+
     // MARK: - Keyboard & gestures
 
     override func keyDown(with event: NSEvent) {
@@ -1406,6 +1651,7 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
 
         if event.keyCode == 51 || event.keyCode == 117 {
             if deleteSelectedImageIfNeeded() { return }
+            if deleteSelectedItemIfNeeded() { return }
             if deleteSelectedTextIfNeeded() { return }
         }
 
@@ -1506,6 +1752,64 @@ final class EditorCanvasView: NSView, NSTextViewDelegate {
         UInt16(kVK_ANSI_Keypad5): 4,
         UInt16(kVK_ANSI_Keypad6): 5
     ]
+}
+
+private extension EditorCanvasView.Item {
+    init?(stateItem: EditorCanvasState.Item) {
+        switch stateItem {
+        case .pen(let points, let color, let lineWidth):
+            self = .pen(points: points.map(\.nsPoint), color: color.nsColor, lineWidth: lineWidth)
+        case .arrow(let start, let end, let color, let lineWidth):
+            self = .arrow(start: start.nsPoint, end: end.nsPoint, color: color.nsColor, lineWidth: lineWidth)
+        case .rect(let rect, let color, let lineWidth):
+            self = .rect(rect: rect.nsRect, color: color.nsColor, lineWidth: lineWidth)
+        case .ellipse(let rect, let color, let lineWidth):
+            self = .ellipse(rect: rect.nsRect, color: color.nsColor, lineWidth: lineWidth)
+        case .text(let text):
+            let item = EditorCanvasView.TextItem(text: text.text,
+                                                 origin: text.origin.nsPoint,
+                                                 color: text.color.nsColor,
+                                                 fontSize: text.fontSize)
+            self = .text(item)
+        case .image(let pngData, let rect):
+            guard let image = NSImage(data: pngData) else { return nil }
+            self = .image(image: image, rect: rect.nsRect)
+        case .erase(let rect):
+            self = .erase(rect: rect.nsRect)
+        }
+    }
+
+    var stateItem: EditorCanvasState.Item? {
+        switch self {
+        case .pen(let points, let color, let lineWidth):
+            return .pen(points: points.map(EditorCanvasState.Point.init),
+                        color: EditorCanvasState.Color(color),
+                        lineWidth: lineWidth)
+        case .arrow(let start, let end, let color, let lineWidth):
+            return .arrow(start: EditorCanvasState.Point(start),
+                          end: EditorCanvasState.Point(end),
+                          color: EditorCanvasState.Color(color),
+                          lineWidth: lineWidth)
+        case .rect(let rect, let color, let lineWidth):
+            return .rect(rect: EditorCanvasState.Rect(rect),
+                         color: EditorCanvasState.Color(color),
+                         lineWidth: lineWidth)
+        case .ellipse(let rect, let color, let lineWidth):
+            return .ellipse(rect: EditorCanvasState.Rect(rect),
+                            color: EditorCanvasState.Color(color),
+                            lineWidth: lineWidth)
+        case .text(let text):
+            return .text(EditorCanvasState.Text(text: text.text,
+                                                origin: EditorCanvasState.Point(text.origin),
+                                                color: EditorCanvasState.Color(text.color),
+                                                fontSize: text.fontSize))
+        case .image(let image, let rect):
+            guard let pngData = ScreenshotServiceCoreLogic.pngData(from: image) else { return nil }
+            return .image(pngData: pngData, rect: EditorCanvasState.Rect(rect))
+        case .erase(let rect):
+            return .erase(rect: EditorCanvasState.Rect(rect))
+        }
+    }
 }
 
 private final class EditorInlineTextView: NSTextView {
